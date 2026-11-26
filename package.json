@@ -1,0 +1,15 @@
+{
+  "name": "retcon-tracker",
+  "private": true,
+  "description": "The RetCon tracker: write, open, play and save RetCon songs in the browser, with MIDI and tracker-module converters",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "engines": { "node": ">=24.22.1" },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test/rsng.test.mjs",
+    "serve": "node serve.mjs",
+    "midi2rsng": "node converters/midi2rsng.js",
+    "mod2rsng": "node converters/mod2rsng.js"
+  }
+}
