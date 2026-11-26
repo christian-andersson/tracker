@@ -1,0 +1,1226 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- The RetCon tracker: write, open, play and save RetCon songs (.rsng) in
+     the browser. `npm run build` (build.mjs) builds it into one self-contained file,
+     dist/index.html, with the song library (src/), the audio worklet, the
+     General MIDI bank and the WebAssembly engine (engine/player.wasm) inlined,
+     so it opens straight from disk. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RetCon tracker</title>
+<style>
+  :root {
+    --bg: #0c0e1a; --panel: #141930; --panel2: #1b2140; --text: #e8ebf6; --dim: #98a0bd; --faint: #4c5478;
+    --line: #262d4c; --accent: #4678ff; --accent-text: #fff; --warn: #ff6b60; --ok: #3cd26e;
+    --beat: #181e3a; --bar: #212a52; --cur: #3a63e0; --curcell: #26305e; --play: #3b2a12; --note: #e8ebf6;
+    --inst: #6ce6f0; --vol: #b4e646; --fx: #ffa03c; --raw: #ff6bd0;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #eef0f6; --panel: #ffffff; --panel2: #f4f6fb; --text: #15182a; --dim: #5d6480; --faint: #a6abc1;
+      --line: #dde1ec; --accent: #3a63e0; --accent-text: #fff; --warn: #b4251d; --ok: #1d8a4a;
+      --beat: #f1f3fa; --bar: #e3e8f7; --cur: #3a63e0; --curcell: #dce5ff; --play: #fff0d6; --note: #15182a;
+      --inst: #0a7f8c; --vol: #4f7a0a; --fx: #b25d00; --raw: #b0258f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+         display: flex; flex-direction: column; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; letter-spacing: .03em; }
+  .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+  button, select, input { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }
+  button { padding: 4px 10px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  input, select { padding: 3px 6px; }
+  input[type=number] { width: 64px; }
+  label.inline { display: inline-flex; gap: 6px; align-items: center; color: var(--dim); font-size: 13px; }
+  .main { flex: 1; display: grid; grid-template-columns: 250px minmax(0, 1fr) 290px; min-height: 0; }
+  @media (max-width: 1100px) { .main { grid-template-columns: 220px minmax(0, 1fr); } .right { grid-column: 1 / -1; } }
+  @media (max-width: 720px) { .main { grid-template-columns: minmax(0, 1fr); } }
+  aside, section { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 10px 12px; }
+  .center { overflow: hidden; }
+  aside { background: var(--panel); }
+  .left { border-right: 1px solid var(--line); }
+  .right { border-left: 1px solid var(--line); }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 14px 0 6px; }
+  h2:first-child { margin-top: 0; }
+  .form { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 8px; align-items: center; font-size: 13px; }
+  .form label { color: var(--dim); }
+  .form input, .form select { width: 100%; }
+  .row { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+  .row button { padding: 3px 8px; font-size: 13px; }
+  .list { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2);
+          font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .list li { padding: 1px 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .list li:hover { background: var(--beat); }
+  .list li.sel { background: var(--curcell); }
+  .list li .loop { color: var(--fx); }
+  #gridwrap { height: 100%; overflow: auto; outline: none; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+  #gridwrap:focus { border-color: var(--accent); }
+  table.grid { border-collapse: collapse; font: 13px/18px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
+  table.grid th { position: sticky; top: 0; background: var(--panel2); color: var(--dim); font-weight: 500; padding: 2px 8px; border-bottom: 1px solid var(--line); z-index: 1; }
+  table.grid td { padding: 0 8px; border-right: 1px solid var(--line); cursor: default; }
+  table.grid td.rn { color: var(--faint); text-align: right; padding: 0 6px; border-right: 1px solid var(--line); }
+  table.grid tr.beat td { background: var(--beat); }
+  table.grid tr.bar td { background: var(--bar); }
+  table.grid tr.cur td { background: var(--curcell); }
+  table.grid tr.play td.rn { background: var(--play); color: var(--text); }
+  .n { color: var(--note); } .i { color: var(--inst); } .v { color: var(--vol); } .f { color: var(--fx); } .k { color: var(--raw); }
+  .e { color: var(--faint); }
+  .cur-sub { outline: 2px solid var(--cur); outline-offset: -1px; border-radius: 2px; }
+  #cellinfo { font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dim); margin-top: 8px; min-height: 1.5em; }
+  .center { display: flex; flex-direction: column; }
+  .center #gridwrap { flex: 1; min-height: 240px; }
+  .help { font-size: 12.5px; color: var(--dim); line-height: 1.5; }
+  .help a { color: var(--inst); }
+  .help code, .help kbd { font: 12px ui-monospace, Menlo, monospace; color: var(--text); }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+  .tabs button { padding: 2px 8px; font-size: 12.5px; white-space: nowrap; }
+  .tabs button.sel { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px;
+           width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
+  dialog::backdrop { background: rgba(0, 0, 0, .45); }
+  dialog h3 { margin: 0 0 4px; font-size: 15px; }
+  dialog .sub { color: var(--dim); font-size: 12.5px; margin: 0 0 10px; }
+  .xitem { display: grid; grid-template-columns: 118px 112px minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 6px 0; border-top: 1px solid var(--line); }
+  .xitem .args { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+  .xitem .args label { display: inline-flex; gap: 4px; align-items: center; color: var(--dim); font-size: 12.5px; }
+  .xitem .args input[type=number] { width: 78px; }
+  .xitem .args select { max-width: 220px; }
+  .xitem .btns { display: flex; gap: 3px; }
+  .xitem .btns button { padding: 1px 7px; }
+  .xitem .op { font-weight: 600; padding-top: 3px; }
+  .xempty { color: var(--faint); padding: 8px 0; border-top: 1px solid var(--line); }
+  #wavebox canvas { display: block; width: 100%; height: 120px; margin: 6px 0; border: 1px solid var(--line); border-radius: 6px;
+                    background: var(--panel2); touch-action: none; }
+  #wavebox canvas.draw { cursor: crosshair; }
+  #wavebox select { max-width: 100%; }
+  #help { width: min(900px, calc(100vw - 32px)); }
+  #help .body { font-size: 13.5px; line-height: 1.55; }
+  #help .body h4 { margin: 14px 0 4px; font-size: 13.5px; }
+  #help .body p { margin: 4px 0 8px; }
+  #help dl { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 3px 12px; margin: 4px 0 10px; }
+  #help dt { font: 12.5px/1.55 ui-monospace, Menlo, monospace; color: var(--inst); }
+  #help dd { margin: 0; color: var(--text); }
+  #help code, #help kbd { font: 12.5px ui-monospace, Menlo, monospace; }
+  .algos { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin: 8px 0; }
+  .algo { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--panel2); cursor: pointer; text-align: left; }
+  .algo.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .algo b { font-size: 13px; }
+  .algo .use { color: var(--dim); font-size: 12px; }
+  .algo svg { display: block; margin: 4px 0; }
+  .algo svg .box { fill: var(--panel); stroke: var(--dim); }
+  .algo svg .box.car { fill: var(--accent); stroke: var(--accent); }
+  .algo svg text { fill: var(--text); font: 11px ui-monospace, Menlo, monospace; }
+  .algo svg .car + text { fill: var(--accent-text); }
+  .algo svg .wire { stroke: var(--dim); fill: none; }
+  .algo svg .fb { stroke: var(--fx); fill: none; stroke-dasharray: 3 2; }
+  .algo .txt { font-size: 12.5px; color: var(--dim); }
+  #cellinfo button { font-size: 12px; padding: 1px 8px; margin-left: 8px; }
+  footer { padding: 5px 12px; font-size: 13px; color: var(--dim); background: var(--panel); border-top: 1px solid var(--line); min-height: 28px; }
+  footer.error { color: var(--warn); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<header>
+  <h1>RetCon tracker</h1>
+  <button id="new">New</button>
+  <button id="open">Open…</button>
+  <input type="file" id="file" accept=".rsng,.mod,.s3m,.xm,.it,.mid,.midi" class="sr">
+  <button id="save">Save</button>
+  <button id="saveas">Save as…</button>
+  <label class="inline" title="Lay songs without tracker data on one tick a row, so they sound exactly as before (long patterns); a module plays as ProTracker plays it"><input type="checkbox" id="exact"> exact import</label>
+  <span class="sep"></span>
+  <button id="playsong" class="primary" title="Enter: the song from this order position">▶ Song</button>
+  <button id="playpat" title="Space: this pattern, looping">▶ Pattern</button>
+  <button id="stop" title="Escape">■ Stop</button>
+  <label class="inline"><input type="checkbox" id="follow" checked> follow</label>
+  <span class="sep"></span>
+  <label class="inline">Octave <select id="octave"></select></label>
+  <label class="inline">Step <input type="number" id="step" min="0" max="16" value="1"></label>
+  <span class="sep"></span>
+  <button id="helpbtn" title="F1">? Help</button>
+</header>
+
+<div class="main">
+  <aside class="left">
+    <h2>Song</h2>
+    <div class="form">
+      <label for="s-name">Name</label><input id="s-name" maxlength="64">
+      <label for="s-auth">Author</label><input id="s-auth">
+      <label for="s-licn">Licence</label><input id="s-licn">
+      <label for="s-date">Date</label><input id="s-date" placeholder="YYYY-MM-DD">
+      <label for="s-bpm">BPM</label><input id="s-bpm" type="number" min="1" max="65535">
+      <label for="s-tpb">Ticks/beat</label><input id="s-tpb" type="number" min="1" max="255">
+      <label for="s-tpr">Ticks/row</label><input id="s-tpr" type="number" min="1" max="255">
+      <label for="s-rpb">Rows/beat</label><input id="s-rpb" type="number" min="1" max="64">
+      <label for="s-ch">Channels</label><input id="s-ch" type="number" min="1" max="16">
+    </div>
+    <h2>Order</h2>
+    <ul class="list" id="order"></ul>
+    <div class="row">
+      <button id="o-ins" title="Repeat this pattern after this position">Insert</button>
+      <button id="o-del">Remove</button>
+      <button id="o-dec" title="Previous pattern at this position">Pat −</button>
+      <button id="o-inc" title="Next pattern at this position">Pat +</button>
+      <button id="o-loop" title="The song loops back to this position">Loop here</button>
+      <button id="o-noloop">No loop</button>
+    </div>
+    <h2>Pattern</h2>
+    <div class="form">
+      <label for="p-rows">Rows</label><input id="p-rows" type="number" min="1" max="256">
+      <label for="p-name">Name</label><input id="p-name">
+    </div>
+    <div class="row">
+      <button id="p-new" title="A new empty pattern after this order position">New</button>
+      <button id="p-clone" title="A copy of this pattern after this order position">Clone</button>
+    </div>
+  </aside>
+
+  <section class="center">
+    <div id="gridwrap" tabindex="0"></div>
+    <div id="cellinfo"></div>
+  </section>
+
+  <aside class="right">
+    <h2>Instruments</h2>
+    <ul class="list" id="insts"></ul>
+    <div class="row">
+      <select id="i-preset"></select>
+      <button id="i-add">Add</button>
+      <button id="i-dup">Duplicate</button>
+      <button id="i-try" title="Or press a note key">Try</button>
+    </div>
+    <div class="form">
+      <label for="i-name">Name</label><input id="i-name">
+    </div>
+    <div class="tabs" id="optabs"></div>
+    <div class="help" style="margin:-2px 0 6px">Hover a field's name for what it does, or <a href="#" id="insthelp">read about instruments and algorithms</a>.</div>
+    <div class="form" id="ifields"></div>
+    <div id="wavebox"></div>
+    <input type="file" id="w-file" accept="audio/*,.wav,.aif,.aiff,.mp3,.ogg,.flac" class="sr">
+    <p class="help">Keys, effects and the rest: <kbd>F1</kbd> or <b>? Help</b>.</p>
+  </aside>
+</div>
+<footer id="status">Ready.</footer>
+
+<dialog id="extras">
+  <h3 id="x-title">Extra commands</h3>
+  <p class="sub">Commands this cell carries besides its columns, in the order they run: those before the note,
+    the note itself, then those after it (and the effect column last). A note resets a pitch bend or slide set before it.</p>
+  <div id="x-list"></div>
+  <div class="row" style="margin-top:10px">
+    <select id="x-op"></select>
+    <button type="button" id="x-add">Add</button>
+  </div>
+  <div class="row" style="justify-content:flex-end; margin-top:12px">
+    <button type="button" id="x-cancel">Cancel</button>
+    <button type="button" id="x-ok" class="primary">Apply</button>
+  </div>
+</dialog>
+
+<dialog id="lost">
+  <h3>Not everything fit</h3>
+  <p class="sub" id="l-what"></p>
+  <ul id="l-list"></ul>
+  <div class="row" style="justify-content:flex-end; margin-top:12px">
+    <button type="button" id="l-ok" class="primary">OK</button>
+  </div>
+</dialog>
+
+<dialog id="help">
+  <h3>Help</h3>
+  <div class="tabs" id="h-tabs"></div>
+  <div class="body" id="h-body"></div>
+  <div class="row" style="justify-content:flex-end; margin-top:12px">
+    <button type="button" id="h-close" class="primary">Close</button>
+  </div>
+</dialog>
+
+<script>
+/*RSNG_JS*/
+</script>
+<script>
+const WORKLET_SRC = /*WORKLET_SRC*/"";
+const WASM_B64 = /*WASM_B64*/"";
+const BANK_B64 = /*BANK_B64*/"";          // the General MIDI instruments (DMXOPL3, banks/dmxopl3/), for MIDI files
+let gmBank = null;
+const bank = () => gmBank || (gmBank = R.gmBank(Uint8Array.from(atob(BANK_B64), (c) => c.charCodeAt(0)).buffer));
+const R = RSNG;
+const $ = (id) => document.getElementById(id);
+const MUSIC_STOP = 2, PLAYING = 1;
+const FX_OK = new Set([0, 1, 2, 3, 4, 10, 15]);
+const NOTE_KEYS = { KeyZ: 0, KeyS: 1, KeyX: 2, KeyD: 3, KeyC: 4, KeyV: 5, KeyG: 6, KeyB: 7, KeyH: 8, KeyN: 9, KeyJ: 10, KeyM: 11,
+  Comma: 12, KeyL: 13, Period: 14, Semicolon: 15, Slash: 16,
+  KeyQ: 12, Digit2: 13, KeyW: 14, Digit3: 15, KeyE: 16, KeyR: 17, Digit5: 18, KeyT: 19, Digit6: 20, KeyY: 21, Digit7: 22, KeyU: 23,
+  KeyI: 24, Digit9: 25, KeyO: 26, Digit0: 27, KeyP: 28 };
+const SUBCOLS = 8;          // note, inst hi, inst lo, vol hi, vol lo, fx, param hi, param lo
+
+let song = R.newSong(4);
+const cur = { order: 0, row: 0, ch: 0, col: 0, inst: 0, op: 1 };
+let dirty = false, instDirty = true, fileHandle = null, fileName = 'song.rsng';
+let undo = [], clip = null;
+let playing = null;          // { mode, start, rows: [[orderIndex, rows]...], loopRow }
+let playRow = -1, playOrder = -1;
+
+// ---------------------------------------------------------------- the engine
+let ctx = null, node = null, ready = null;
+async function workletNode() {
+  const url = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'text/javascript' }));
+  await ctx.audioWorklet.addModule(url);
+  return new AudioWorkletNode(ctx, 'rsng-player', { numberOfInputs: 0, outputChannelCount: [2] });
+}
+function pageNode() {
+  const toPage = { onmessage: null };
+  const Base = class { constructor() { this.port = { postMessage: (m) => toPage.onmessage && toPage.onmessage({ data: m }) }; } };
+  const Proc = new Function('AudioWorkletProcessor', 'registerProcessor', 'sampleRate',
+                            WORKLET_SRC + '\n;return RsngPlayer;')(Base, () => {}, ctx.sampleRate);
+  const proc = new Proc();
+  const sp = ctx.createScriptProcessor(2048, 0, 2);
+  sp.onaudioprocess = (ev) => proc.process([], [[ev.outputBuffer.getChannelData(0), ev.outputBuffer.getChannelData(1)]]);
+  sp.port = { postMessage: (m) => proc.message(m), set onmessage(f) { toPage.onmessage = f; } };
+  return sp;
+}
+async function audio() {
+  if (ready) return ready;
+  ready = (async () => {
+    ctx = new AudioContext({ sampleRate: 48000 });
+    if (location.protocol === 'file:') node = pageNode();
+    else { try { node = await workletNode(); } catch (e) { node = pageNode(); } }
+    node.connect(ctx.destination);
+    const bytes = Uint8Array.from(atob(WASM_B64), (c) => c.charCodeAt(0)).buffer;
+    await new Promise((res, rej) => {
+      node.port.onmessage = (ev) => { if (ev.data.type === 'ready') ev.data.ok ? res() : rej(new Error('the engine did not start')); };
+      node.port.postMessage({ type: 'wasm', bytes }, [bytes]);
+    });
+    node.port.onmessage = (ev) => onEngine(ev.data);
+    node.port.postMessage({ type: 'set', volume: 255, tempo: 128 });
+  })();
+  ready.catch(() => { ready = null; });
+  return ready;
+}
+async function engine() {
+  try { await audio(); await ctx.resume(); return true; }
+  catch (e) { status('Audio could not start: ' + e.message, true); return false; }
+}
+function load(bytes, start) {
+  const b = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  node.port.postMessage({ type: 'load', bytes: b, start, id: 0 }, [b]);
+}
+function onEngine(m) {
+  if (m.type === 'loaded' && m.err) status('The engine refused the song (error ' + m.err + ')', true);
+  if (m.type !== 'status' || !playing) return;
+  if (m.state !== PLAYING) { playing = null; playRow = playOrder = -1; renderGrid(); renderOrder(); return; }
+  // where the song is: rows since the start, round the loop
+  let r = Math.floor(m.tick / song.ticksPerRow);
+  const total = playing.rows.reduce((n, x) => n + x[1], 0);
+  if (r >= total) r = playing.loopRow >= 0 ? playing.loopRow + (r - playing.loopRow) % (total - playing.loopRow) : total - 1;
+  for (const [oi, rows, from = 0] of playing.rows) { if (r < rows) { playOrder = oi; playRow = from + r; break; } r -= rows; }
+  if ($('follow').checked && playing.mode === 'song' && playOrder >= 0 && (cur.order !== playOrder || cur.row !== playRow)) {
+    cur.order = playOrder; cur.row = playRow;
+    renderSong(); renderOrder(); renderGrid(); renderCellInfo();   // not the instrument panel: it may be in use
+  } else renderGrid();
+}
+
+// Every play starts at the chosen order position with each channel set up
+// as the rows before left it there (R.chase: instrument, volume, patches,
+// sweeps, tuning and the rest), so it starts at once and, in the pattern
+// mode, every turn starts the same. `chased` keeps each position's start and
+// end: a position is worked out again only when its pattern, or one before
+// it, has changed.
+let chased = {};
+async function play(mode, k = cur.order, row = 0) {
+  if (!(await engine())) return;
+  const only = mode === 'pattern', len = (i) => song.patterns[song.order[i]].rows;
+  // the order positions as the play runs through them (R.playOrder, as compiled)
+  const { seq, loopAt } = row && !only ? R.playOrder(song, k + 1) : R.playOrder(song, k, only);
+  const rows = (row ? [[k, len(k) - row, row]] : []).concat(seq.map((i) => [i, len(i)]));
+  const at = (row ? 1 : 0) + loopAt;
+  const loopRow = loopAt < 0 ? -1 : rows.slice(0, at).reduce((n, x) => n + x[1], 0);
+  playing = { mode, rows, loopRow };
+  load(R.writePlay(song, k, only, chased, row), true);
+  instDirty = false;
+  status(only ? `Playing pattern ${R.hex2(song.order[k])} on repeat.` : 'Playing from order position ' + R.hex2(k) + '.');
+}
+// A change of the song's timing while it plays: play on from the next row
+// with the new timing (the notes sounding then are cut).
+function playOn() {
+  if (!playing || playOrder < 0) return;
+  const len = (k) => song.patterns[song.order[k]].rows;
+  let k = playOrder, row = playRow + 1;
+  if (row >= len(k)) {
+    row = 0;
+    if (playing.mode === 'song') {
+      k++;
+      if (k >= song.order.length) { if (song.loop >= 0 && song.loop < song.order.length) k = song.loop; else return; }
+    }
+  }
+  play(playing.mode, k, row);
+}
+function stop() {
+  if (node) node.port.postMessage({ type: 'command', command: MUSIC_STOP });
+  playing = null; playRow = playOrder = -1;
+  renderGrid(); renderOrder();
+}
+let heldKey = null;
+async function preview(note, code) {
+  if (!song.instruments.length || !(await engine())) return;
+  if (instDirty && !playing) { load(R.writeSong(song), false); instDirty = false; }
+  node.port.postMessage({ type: 'note', voice: 15, instrument: cur.inst, note, volume: 200, on: true });
+  heldKey = code;
+}
+function release(code) {
+  if (node && code === heldKey) { node.port.postMessage({ type: 'note', voice: 15, instrument: cur.inst, note: 0, volume: 0, on: false }); heldKey = null; }
+}
+
+// ---------------------------------------------------------------- editing
+const pattern = () => song.patterns[song.order[cur.order]];
+function status(text, error) { $('status').textContent = text; $('status').classList.toggle('error', !!error); }
+function changed(inst) { dirty = true; if (inst) instDirty = true; }
+function snapshot() {
+  const pi = song.order[cur.order];
+  undo.push({ pi, rows: song.patterns[pi].rows, cells: clone(song.patterns[pi].cells) });
+  if (undo.length > 200) undo.shift();
+}
+function clone(x) {
+  return Array.isArray(x) ? x.map(clone) : x instanceof Uint8Array ? x.slice()
+    : x && typeof x === 'object' ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, clone(v)])) : x;
+}
+function cellAt(ch, row, make) {
+  const col = pattern().cells[ch];
+  if (!col[row] && make) col[row] = R.emptyCell();
+  return col[row];
+}
+function tidy(ch, row) { const col = pattern().cells[ch]; if (R.cellEmpty(col[row])) col[row] = null; }
+function advance() { const st = +$('step').value || 0; cur.row = Math.min(pattern().rows - 1, cur.row + st); }
+
+function enterNote(n) {
+  snapshot();
+  const c = cellAt(cur.ch, cur.row, true);
+  c.note = Math.max(0, Math.min(127, n)); c.off = false;
+  if (song.instruments.length) c.inst = cur.inst;
+  changed(); advance(); renderAll();
+}
+function enterOff() {
+  snapshot();
+  const c = cellAt(cur.ch, cur.row, true);
+  c.note = null; c.off = true; c.inst = null;
+  if (c.fx === 3) { c.fx = null; c.param = 0; }
+  changed(); advance(); renderAll();
+}
+function enterHex(d) {
+  const col = cur.col;
+  if (col === 5 && !FX_OK.has(d)) { status(`Effect ${R.FX_LETTERS[d]} is not one this tracker writes (0, 1, 2, 3, 4, A, F).`, true); return; }
+  snapshot();
+  const c = cellAt(cur.ch, cur.row, true);
+  const set = (v, hi) => ((v === null ? 0 : v) & (hi ? 0x0F : 0xF0)) | (hi ? d << 4 : d);
+  if (col === 1 || col === 2) c.inst = Math.min(song.instruments.length ? 255 : 0, set(c.inst, col === 1));
+  else if (col === 3 || col === 4) c.vol = set(c.vol, col === 3);
+  else if (col === 5) { c.fx = d; if (c.param === undefined) c.param = 0; }
+  else if (col === 6 || col === 7) { if (c.fx === null) c.fx = 0; c.param = set(c.param, col === 6); }
+  tidy(cur.ch, cur.row); changed(); advance(); renderAll();
+}
+function clearField(whole) {
+  const c = cellAt(cur.ch, cur.row, false);
+  if (!c) return advanceAndRender();
+  snapshot();
+  if (whole) pattern().cells[cur.ch][cur.row] = null;
+  else if (cur.col === 0) { c.note = null; c.off = false; c.inst = null; if (c.fx === 3) { c.fx = null; c.param = 0; } }
+  else if (cur.col <= 2) c.inst = null;
+  else if (cur.col <= 4) c.vol = null;
+  else { c.fx = null; c.param = 0; }
+  if (!whole) tidy(cur.ch, cur.row);
+  changed(); advanceAndRender();
+}
+function advanceAndRender() { advance(); renderAll(); }
+
+function move(dRow, dCol) {
+  const p = pattern();
+  if (dRow) cur.row = Math.max(0, Math.min(p.rows - 1, cur.row + dRow));
+  if (dCol) {
+    let i = cur.ch * SUBCOLS + cur.col + dCol;
+    const max = song.channels * SUBCOLS;
+    i = (i % max + max) % max;
+    cur.ch = Math.floor(i / SUBCOLS); cur.col = i % SUBCOLS;
+  }
+  renderGrid(); renderCellInfo();
+}
+function setOrder(i) {
+  cur.order = Math.max(0, Math.min(song.order.length - 1, i));
+  cur.row = Math.min(cur.row, pattern().rows - 1);
+  renderAll();
+}
+
+// ---------------------------------------------------------------- the grid
+function cellHtml(c, ch, row) {
+  const sel = row === cur.row && ch === cur.ch;
+  const sub = (i, text, cls) => `<span class="${cls}${sel && cur.col === i ? ' cur-sub' : ''}" data-c="${i}">${text}</span>`;
+  const note = !c ? '···' : c.note !== null ? R.noteName(c.note) : c.off ? '===' : '···';
+  const inst = c && c.inst !== null ? R.hex2(c.inst) : '··';
+  const vol = c && c.vol !== null ? R.hex2(c.vol) : '··';
+  const fx = c && c.fx !== null ? R.FX_LETTERS[c.fx] : '·';
+  const par = c && c.fx !== null ? R.hex2(c.param & 0xFF) : '··';
+  const kept = c && (c.raw.length || (c.post && c.post.length));
+  const ncls = !c || (c.note === null && !c.off) ? 'e' : 'n';
+  return `<td data-ch="${ch}">` +
+    sub(0, note, ncls) + ' ' + sub(1, inst[0], inst === '··' ? 'e' : 'i') + sub(2, inst[1], inst === '··' ? 'e' : 'i') + ' ' +
+    sub(3, vol[0], vol === '··' ? 'e' : 'v') + sub(4, vol[1], vol === '··' ? 'e' : 'v') + ' ' +
+    sub(5, fx, fx === '·' ? 'e' : 'f') + sub(6, par[0], par === '··' ? 'e' : 'f') + sub(7, par[1], par === '··' ? 'e' : 'f') +
+    `<span class="k">${kept ? '*' : ' '}</span></td>`;
+}
+let shownCursor = '';
+function renderGrid() {
+  const p = pattern(), rpb = song.rowsPerBeat || 4;
+  let h = '<table class="grid"><thead><tr><th></th>';
+  for (let ch = 0; ch < song.channels; ch++) h += `<th>${ch + 1}</th>`;
+  h += '</tr></thead><tbody>';
+  for (let r = 0; r < p.rows; r++) {
+    const cls = [r === cur.row ? 'cur' : r % (rpb * 4) === 0 ? 'bar' : r % rpb === 0 ? 'beat' : '',
+                 playOrder === cur.order && playRow === r ? 'play' : ''].join(' ');
+    h += `<tr class="${cls}" data-r="${r}"><td class="rn">${R.hex2(r)}</td>`;
+    for (let ch = 0; ch < song.channels; ch++) h += cellHtml(p.cells[ch][r], ch, r);
+    h += '</tr>';
+  }
+  const wrap = $('gridwrap'), keep = wrap.scrollTop, keepX = wrap.scrollLeft;
+  wrap.innerHTML = h + '</tbody></table>';
+  wrap.scrollTop = keep; wrap.scrollLeft = keepX;    // a rewrite empties it for a moment, which scrolls it to the top
+  const here = `${cur.order}:${cur.row}`;
+  const tr = shownCursor !== here && wrap.querySelector(`tr[data-r="${cur.row}"]`);
+  shownCursor = here;                               // scroll to the cursor only when it moved
+  if (tr) {
+    const top = tr.offsetTop, head = 24;
+    if (top - head < wrap.scrollTop) wrap.scrollTop = top - head - 36;
+    else if (top + tr.offsetHeight > wrap.scrollTop + wrap.clientHeight) wrap.scrollTop = top + tr.offsetHeight - wrap.clientHeight + 36;
+  }
+}
+function renderCellInfo() {
+  const c = cellAt(cur.ch, cur.row, false);
+  const parts = [`order ${R.hex2(cur.order)} · pattern ${R.hex2(song.order[cur.order])} · row ${R.hex2(cur.row)} · channel ${cur.ch + 1}`];
+  if (c && c.inst !== null && song.instruments[c.inst]) parts.push(`instrument ${R.hex2(c.inst)}: ${song.instruments[c.inst].name}`);
+  const kept = c ? [...c.raw, ...(c.post || [])] : [];
+  if (kept.length) parts.push(`extras: ${kept.slice(0, 6).map(R.rawName).join(', ')}${kept.length > 6 ? ` and ${kept.length - 6} more` : ''}`);
+  $('cellinfo').textContent = parts.join('   ');
+  const b = document.createElement('button');
+  b.textContent = kept.length ? 'Edit extras…' : 'Add extras…';
+  b.onclick = openExtras;
+  $('cellinfo').append(b);
+}
+
+// ---------------------------------------------------------------- the panels
+function renderSong() {
+  const set = (id, v) => { if (document.activeElement !== $(id)) $(id).value = v; };
+  set('s-name', song.name); set('s-auth', song.auth); set('s-licn', song.licn); set('s-date', song.date);
+  set('s-bpm', song.bpm); set('s-tpb', song.tpb); set('s-tpr', song.ticksPerRow); set('s-rpb', song.rowsPerBeat);
+  set('s-ch', song.channels);
+  const p = pattern();
+  set('p-rows', p.rows); set('p-name', p.name || '');
+}
+let shownOrder = -1;
+function renderOrder() {
+  const keep = $('order').scrollTop;
+  $('order').innerHTML = song.order.map((pi, k) =>
+    `<li data-k="${k}" class="${k === cur.order ? 'sel' : ''}">${R.hex2(k)} ${k === song.loop ? '<span class="loop">⟲</span>' : ' '} ` +
+    `${playOrder === k ? '▶' : ' '} pattern ${R.hex2(pi)}${song.patterns[pi].name ? ' ' + escapeHtml(song.patterns[pi].name) : ''}</li>`).join('');
+  $('order').scrollTop = keep;
+  const li = $('order').querySelector('li.sel');
+  if (li && shownOrder !== cur.order) {           // only when the position changed: the user may be scrolling
+    const box = $('order'), top = li.offsetTop - box.offsetTop;
+    if (top < box.scrollTop || top + li.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = top - box.clientHeight / 2;
+  }
+  shownOrder = cur.order;
+}
+// A rebuilt panel gives the keys back to the field that had them.
+function keepFocus() { const a = document.activeElement; return a && a.id ? { id: a.id, start: a.selectionStart, end: a.selectionEnd } : null; }
+function restoreFocus(f) {
+  if (!f || document.activeElement && document.activeElement.id === f.id) return;
+  const el = document.getElementById(f.id);
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  try { if (f.start !== null && f.start !== undefined) el.setSelectionRange(f.start, f.end); } catch (e) { /* not a text field */ }
+}
+
+function renderInstruments() {
+  const focused = keepFocus(), keepList = $('insts').scrollTop;
+  $('insts').innerHTML = song.instruments.map((ins, k) =>
+    `<li data-k="${k}" class="${k === cur.inst ? 'sel' : ''}">${R.hex2(k)} ${escapeHtml(ins.name)}</li>`).join('') ||
+    '<li>No instruments: add one below.</li>';
+  $('insts').scrollTop = keepList;
+  const ins = song.instruments[cur.inst];
+  if (document.activeElement !== $('i-name')) $('i-name').value = ins ? ins.name : '';
+  $('optabs').innerHTML = [0, 1, 2, 3].map((o) => `<button data-o="${o}" class="${o === cur.op ? 'sel' : ''}">Op ${o + 1}</button>`).join('') +
+    `<button data-o="-1" class="${cur.op === -1 ? 'sel' : ''}">Instrument</button>`;
+  if (!ins) { $('ifields').innerHTML = ''; restoreFocus(focused); return; }
+  const fields = cur.op >= 0 ? R.OP_FIELDS.map(([n, off, t]) => [n, off + 20 * cur.op, t]) : R.INST_FIELDS;
+  $('ifields').innerHTML = fields.map(([n, off, t]) => {
+    const v = R.getField(ins.bytes, off, t), id = `f-${off}`;
+    let input;
+    if (n === 'wave' || /lfo\d_wave/.test(n)) input = `<select id="${id}">${R.WAVES.map((w, i) => `<option value="${i}"${i === v ? ' selected' : ''}>${w}</option>`).join('')}</select>`;
+    else if (n === 'filter_mode') input = `<select id="${id}">${R.FILTERS.map((w, i) => `<option value="${i}"${i === v ? ' selected' : ''}>${w}</option>`).join('')}</select>`;
+    else input = `<input id="${id}" type="number" value="${v}" min="${t === 'i8' ? -128 : 0}" max="${t === 'u16' ? 65535 : t === 'i8' ? 127 : 255}">`;
+    const ms = /attack|decay|release/.test(n) && !/sustain_decay/.test(n) ? `${Math.round(R.envMs(v))} ms. ` : '';
+    return `<label for="${id}" title="${escapeHtml(ms + fieldHelp(n))}">${n.replace(/_/g, ' ')}</label>${input}`;
+  }).join('');
+  for (const [n, off, t] of fields) $(`f-${off}`).onchange = (e) => {
+    const was = R.getField(ins.bytes, off, t);
+    R.setField(ins.bytes, off, t, +e.target.value);
+    if (n === 'wave' || n === 'flags') {
+      if (n === 'wave') {
+        // the width defaults (console_sys.h): a square for a pulse, none for the rest
+        const w = off + 4, width = R.getField(ins.bytes, w, 'u16'), pulse = 3, now = ins.bytes[off];
+        if (was === pulse && now !== pulse && width === 32768) R.setField(ins.bytes, w, 'u16', 0);
+        if (was !== pulse && now === pulse && width === 0) R.setField(ins.bytes, w, 'u16', 32768);
+        giveWave(ins, cur.op);
+      }
+      changed(true); renderInstruments(); return;
+    }
+    const v = R.getField(ins.bytes, off, t);
+    if (e.target.tagName === 'INPUT' && +e.target.value !== v) e.target.value = v;   // clamped
+    const label = e.target.previousElementSibling;
+    if (label && / ms\. /.test(label.title)) label.title = `${Math.round(R.envMs(v))} ms. ${fieldHelp(n)}`;
+    changed(true);                                  // the field stays as it is: no redraw takes it away
+  };
+  renderWave(ins);
+  restoreFocus(focused);
+}
+
+// ---------------------------------------------------------------- wavetables and samples (the wave box)
+// An operator whose wave is a wavetable or a sample plays one of the song's
+// waves (song.waves; src/waves.js keeps the operator's choice in data_offset).
+// The box under the operator's fields picks it, draws it and edits it:
+// a wavetable is drawn with the mouse, a sample shown with its loop.
+const opWave = (ins, o) => R.getU32(ins.bytes, o * 20 + 16);
+const setOpWave = (ins, o, k) => R.setU32(ins.bytes, o * 20 + 16, k);
+const opKind = (ins, o) => ({ [R.WAVE_TABLE]: 'table', [R.WAVE_SAMPLE]: 'sample' })[ins.bytes[o * 20]] || null;
+// a wavetable operator without a table of its own gets a new one
+function giveWave(ins, o) {
+  const kind = opKind(ins, o), w = song.waves[opWave(ins, o)];
+  if (kind === 'table' && !(w && w.kind === 'table')) setOpWave(ins, o, song.waves.push(R.newTable()) - 1);
+  if (kind === 'sample' && !(w && w.kind === 'sample')) {
+    const k = song.waves.findIndex((x) => x.kind === 'sample');
+    setOpWave(ins, o, k >= 0 ? k : R.NO_WAVE);
+  }
+}
+const waveLabel = (w, k) => `${w.kind === 'table' ? 'Table' : 'Sample'} ${k + 1}${w.name ? ' · ' + w.name : ''}` +
+  (w.kind === 'table' ? ` (${w.steps.length} steps)` : ` (${(w.frames / (w.rate || 1)).toFixed(2)} s)`);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function renderWave(ins) {
+  const box = $('wavebox'), o = cur.op, kind = o >= 0 ? opKind(ins, o) : null;
+  if (!kind) { box.innerHTML = ''; return; }
+  const k = opWave(ins, o), w = song.waves[k] && song.waves[k].kind === kind ? song.waves[k] : null;
+  const same = song.waves.map((x, i) => [x, i]).filter(([x]) => x.kind === kind);
+  const users = w ? R.waveUsers(song, k).map(([i, op]) => `${R.hex2(i)} op ${op + 1}`) : [];
+  let html = `<h2>${kind === 'table' ? 'Wavetable' : 'Sample'}</h2>
+    <div class="row"><select id="w-sel">${w ? '' : '<option value="-1">none</option>'}${same.map(([x, i]) =>
+      `<option value="${i}"${i === k ? ' selected' : ''}>${escapeHtml(waveLabel(x, i))}</option>`).join('')}</select></div>
+    <div class="row">${kind === 'table' ? '<button id="w-new" title="A new table for this operator">New</button>' : ''}
+      <button id="w-load" title="A sound file as a new sample for this operator${kind === 'table' ? ' (the wave becomes sample)' : ''}">Load sound…</button>
+      ${w ? '<button id="w-copy" title="A copy for this operator only, so the others keep theirs">Copy</button>' : ''}</div>`;
+  if (w) html += `<div class="help">Used by ${users.join(', ')}.</div><canvas id="w-canvas" class="${kind === 'table' ? 'draw' : ''}"></canvas>`;
+  if (w && kind === 'table') html += `<div class="help">Draw with the mouse.</div>
+    <div class="row">${R.TABLE_SHAPES.map((sh) => `<button data-shape="${sh}">${sh}</button>`).join('')}</div>
+    <div class="form">
+      <label for="w-name">Name</label><input id="w-name" value="${escapeHtml(w.name)}">
+      <label for="w-len">Steps</label><input id="w-len" type="number" min="2" max="1024" value="${w.steps.length}">
+      <label for="w-bits">Bits</label><select id="w-bits"><option value="">round to…</option>${[[4, 'Game Boy'], [5, 'PC Engine'], [8, 'Konami SCC'], [6, ''], [3, ''], [2, '']]
+        .map(([b, n]) => `<option value="${b}">${b} bits${n ? ' (' + n + ')' : ''}</option>`).join('')}</select>
+      <label for="w-smooth" title="Interpolate between the steps instead of stepping (OP_TABLE_SMOOTH)">Smooth</label>
+      <input type="checkbox" id="w-smooth" style="width:auto"${ins.bytes[o * 20 + 6] & R.OP_TABLE_SMOOTH ? ' checked' : ''}>
+    </div>`;
+  if (w && kind === 'sample') html += `<div class="help">${w.frames} frames, ${R.SAMPLE_FORMATS[w.format] || 'format ' + w.format}` +
+    `${w.loopLength ? `, loops ${w.loopStart}-${w.loopStart + w.loopLength}` : ', plays once'}.</div>
+    <div class="form">
+      <label for="w-name">Name</label><input id="w-name" value="${escapeHtml(w.name)}">
+      <label for="w-rate" title="Frames a second at the root note">Rate</label><input id="w-rate" type="number" min="1" max="384000" value="${w.rate}">
+      <label for="w-root" title="The MIDI note that plays at the rate">Root note</label><input id="w-root" type="number" min="0" max="127" value="${w.root}">
+      <label for="w-ls" title="First frame of the loop">Loop start</label><input id="w-ls" type="number" min="0" max="${w.frames}" value="${w.loopStart}">
+      <label for="w-ll" title="Frames in the loop; 0 plays once">Loop length</label><input id="w-ll" type="number" min="0" max="${w.frames}" value="${w.loopLength}">
+    </div>`;
+  if (kind === 'sample' && !w) html += '<div class="help">No sample yet: load a sound file.</div>';
+  box.innerHTML = html;
+  const edited = () => { changed(true); };
+  $('w-sel').onchange = (e) => { if (+e.target.value >= 0) { setOpWave(ins, o, +e.target.value); edited(); renderInstruments(); } };
+  if ($('w-new')) $('w-new').onclick = () => { setOpWave(ins, o, song.waves.push(R.newTable(w ? w.steps.length : 32)) - 1); edited(); renderInstruments(); };
+  if ($('w-copy')) $('w-copy').onclick = () => {
+    const c = w.kind === 'table' ? Object.assign({}, w, { steps: w.steps.slice() }) : Object.assign({}, w, { data: w.data.slice() });
+    setOpWave(ins, o, song.waves.push(c) - 1); edited(); renderInstruments();
+  };
+  $('w-load').onclick = () => { $('w-file').value = ''; $('w-file').click(); };
+  if (!w) return;
+  const cv = $('w-canvas');
+  drawWave(cv, w);
+  $('w-name').oninput = (e) => { w.name = e.target.value; changed(); };
+  if (kind === 'table') {
+    let last = null;
+    const at = (e) => {
+      const r = cv.getBoundingClientRect(), n = w.steps.length;
+      const i = Math.max(0, Math.min(n - 1, Math.floor((e.clientX - r.left) / r.width * n)));
+      const v = Math.max(-32767, Math.min(32767, Math.round((1 - 2 * (e.clientY - r.top) / r.height) * 32767)));
+      return [i, v];
+    };
+    const paint = (e) => {
+      const [i, v] = at(e), [i0, v0] = last || [i, v];
+      const step = i >= i0 ? 1 : -1;
+      for (let j = i0; ; j += step) {                 // fill the steps between two mouse positions
+        w.steps[j] = i === i0 ? v : Math.round(v0 + (v - v0) * (j - i0) / (i - i0));
+        if (j === i) break;
+      }
+      last = [i, v];
+      drawWave(cv, w);
+    };
+    cv.onpointerdown = (e) => { cv.setPointerCapture(e.pointerId); last = null; paint(e); };
+    cv.onpointermove = (e) => { if (cv.hasPointerCapture(e.pointerId)) paint(e); };
+    cv.onpointerup = (e) => { cv.releasePointerCapture(e.pointerId); last = null; edited(); };
+    box.querySelectorAll('[data-shape]').forEach((b) => { b.onclick = () => { R.shapeTable(w, b.dataset.shape); edited(); drawWave(cv, w); }; });
+    $('w-len').onchange = (e) => { R.setTableLength(w, +e.target.value); edited(); renderInstruments(); };
+    $('w-bits').onchange = (e) => { if (e.target.value) { R.quantizeTable(w, +e.target.value); edited(); drawWave(cv, w); } e.target.value = ''; };
+    $('w-smooth').onchange = (e) => { ins.bytes[o * 20 + 6] ^= R.OP_TABLE_SMOOTH; edited(); renderInstruments(); };
+  } else {
+    const num = (id, f) => { $(id).onchange = (e) => { f(Math.max(0, +e.target.value | 0)); edited(); renderInstruments(); }; };
+    num('w-rate', (v) => { w.rate = Math.max(1, v); });
+    num('w-root', (v) => { w.root = Math.min(127, v); });
+    num('w-ls', (v) => { w.loopStart = Math.min(v, w.frames); w.loopLength = Math.min(w.loopLength, w.frames - w.loopStart); });
+    num('w-ll', (v) => { w.loopLength = Math.min(v, w.frames - w.loopStart); });
+  }
+}
+function drawWave(cv, w) {
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 264, H = cv.clientHeight || 120;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  g.strokeStyle = css('--line'); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0, H / 2 + 0.5); g.lineTo(W, H / 2 + 0.5); g.stroke();
+  const y = (v) => (1 - v) * H / 2;
+  if (w.kind === 'table') {
+    const n = w.steps.length, bw = W / n;
+    g.fillStyle = css('--inst');
+    for (let i = 0; i < n; i++) {                    // one bar a step, from the middle line
+      const v = w.steps[i] / 32767, top = Math.min(y(v), H / 2), h = Math.max(1, Math.abs(y(v) - H / 2));
+      g.globalAlpha = 0.35; g.fillRect(i * bw, top, Math.max(1, bw - 1), h);
+      g.globalAlpha = 1; g.fillRect(i * bw, y(v) - 1, Math.max(1, bw - 1), 2);
+    }
+    if (n <= 64) { g.strokeStyle = css('--faint'); g.globalAlpha = 0.4;
+      for (let i = 1; i < n; i++) { g.beginPath(); g.moveTo(i * bw + 0.5, 0); g.lineTo(i * bw + 0.5, H); g.stroke(); } g.globalAlpha = 1; }
+  } else {
+    if (w.loopLength) { g.fillStyle = css('--play'); g.fillRect(w.loopStart / w.frames * W, 0, w.loopLength / w.frames * W, H); }
+    g.strokeStyle = css('--inst'); g.beginPath();
+    for (let x = 0; x < W; x++) {                    // the lowest and highest frame under each pixel
+      const a = Math.floor(x / W * w.frames), b = Math.max(a + 1, Math.floor((x + 1) / W * w.frames));
+      let lo = 1, hi = -1;
+      for (let k = a; k < b && k < w.frames; k += Math.max(1, ((b - a) / 64) | 0)) { const v = R.sampleFrame(w, k); lo = Math.min(lo, v); hi = Math.max(hi, v); }
+      if (hi < lo) continue;
+      g.moveTo(x + 0.5, y(hi)); g.lineTo(x + 0.5, y(lo) + 1);
+    }
+    g.stroke();
+  }
+}
+// a sound file as a new 16-bit mono sample at the engine's rate, for this operator
+$('w-file').onchange = async (e) => {
+  const f = e.target.files[0], ins = song.instruments[cur.inst];
+  if (!f || !ins || cur.op < 0) return;
+  try {
+    const buf = await new OfflineAudioContext(1, 1, 48000).decodeAudioData(await f.arrayBuffer());
+    const mono = new Float32Array(buf.length);
+    for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) mono[i] += d[i] / buf.numberOfChannels; }
+    const w = R.newSample(mono, buf.sampleRate);
+    w.name = f.name.replace(/\.[^.]+$/, '');
+    ins.bytes[cur.op * 20] = R.WAVE_SAMPLE;
+    setOpWave(ins, cur.op, song.waves.push(w) - 1);
+    changed(true); renderInstruments();
+    status(`Loaded ${f.name}: ${(buf.length / buf.sampleRate).toFixed(2)} s as sample ${song.waves.length}, root note C-4.`);
+  } catch (err) { status('Cannot read that sound file: ' + err.message, true); }
+};
+function renderAll(scroll = true) { renderSong(); renderOrder(); renderGrid(); renderCellInfo(); renderInstruments(); }
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ---------------------------------------------------------------- extra commands (the popup)
+let xItems = [];            // [{ after: bool, op, values }]
+function openExtras() {
+  const c = cellAt(cur.ch, cur.row, false);
+  const toItem = (after) => (r) => { const d = R.decodeExtra(r); return d ? { after, op: d.op, values: d.values } : { after, raw: r }; };
+  xItems = c ? [...c.raw.map(toItem(false)), ...(c.post || []).map(toItem(true))] : [];
+  $('x-title').textContent = `Extra commands · pattern ${R.hex2(song.order[cur.order])}, row ${R.hex2(cur.row)}, channel ${cur.ch + 1}`;
+  renderExtras();
+  $('extras').showModal();
+}
+function argInput(it, i, [name, type, unit]) {
+  const v = it.values[name], id = `x-${i}-${name}`;
+  const box = (html) => `<label title="${escapeHtml(unit)}">${name} ${html}</label>`;
+  if (type === 'field') {
+    const word = it.op === R.CH.SWEEP && it.values.word;
+    const opts = R.PATCH_FIELDS.filter((f) => !!f.word === !!word || (!word && !f.word));
+    const known = opts.some((f) => f.off === v);
+    return box(`<select id="${id}">${known ? '' : `<option value="${v}">byte ${v}</option>`}` +
+      opts.map((f) => `<option value="${f.off}"${f.off === v ? ' selected' : ''}>${escapeHtml(f.name)}</option>`).join('') + '</select>');
+  }
+  if (type === 'mode') return box(`<select id="${id}">${R.SWEEP_MODES.map((m, k) => `<option value="${k}"${k === v ? ' selected' : ''}>${m}</option>`).join('')}</select>`) +
+    `<label title="the field is 16 bits (Operator.width)"><input type="checkbox" id="${id}-word"${it.values.word ? ' checked' : ''}> 16-bit</label>`;
+  if (type === 'steps') return box(`<input id="${id}" value="${(v || []).join(' ')}" style="width:110px" placeholder="0 4 7">`);
+  const range = { u8: [0, 255], i8: [-128, 127], u16: [0, 65535], i16: [-32768, 32767] }[type];
+  const extra = name === 'note' ? ` <span class="i">${R.noteName(v & 127)}</span>` : '';
+  return box(`<input id="${id}" type="number" min="${range[0]}" max="${range[1]}" value="${v}">${extra}`);
+}
+function renderExtras() {
+  const list = $('x-list');
+  if (!xItems.length) { list.innerHTML = '<div class="xempty">None yet: choose a command below and add it.</div>'; return; }
+  const ordered = [...xItems.map((it, i) => [it, i]).filter(([it]) => !it.after), ...xItems.map((it, i) => [it, i]).filter(([it]) => it.after)];
+  list.innerHTML = ordered.map(([it, i], k) => {
+    const where = `<select id="x-${i}-where"><option value="0"${it.after ? '' : ' selected'}>before note</option><option value="1"${it.after ? ' selected' : ''}>after note</option></select>`;
+    const body = it.raw ? `<div class="args"><code>${escapeHtml(R.rawName(it.raw))}</code></div>`
+      : `<div class="args">${R.EXTRA[it.op].args.map((a) => argInput(it, i, a)).join('')}</div>`;
+    return `<div class="xitem" data-i="${i}">${where}<div class="op">${it.raw ? 'Other' : R.EXTRA[it.op].label}</div>${body}` +
+      `<div class="btns"><button type="button" data-a="up" title="Earlier">↑</button><button type="button" data-a="down" title="Later">↓</button>` +
+      `<button type="button" data-a="del" title="Remove">✕</button></div></div>`;
+  }).join('');
+  xItems.forEach((it, i) => {
+    $(`x-${i}-where`).onchange = (e) => { it.after = e.target.value === '1'; renderExtras(); };
+    if (it.raw) return;
+    for (const [name, type] of R.EXTRA[it.op].args) {
+      const el = $(`x-${i}-${name}`);
+      el.onchange = () => {
+        it.values[name] = type === 'steps' ? el.value.trim().split(/[\s,]+/).filter(Boolean).map(Number).filter((x) => Number.isFinite(x)) : +el.value;
+        if (name === 'note') renderExtras();
+      };
+      if (type === 'mode') $(`x-${i}-${name}-word`).onchange = (e) => { it.values.word = e.target.checked; renderExtras(); };
+    }
+  });
+}
+$('x-list').onclick = (e) => {
+  const b = e.target.closest('button[data-a]');
+  if (!b) return;
+  const i = +b.closest('.xitem').dataset.i, it = xItems[i];
+  const same = xItems.map((x, k) => k).filter((k) => xItems[k].after === it.after), pos = same.indexOf(i);
+  if (b.dataset.a === 'del') xItems.splice(i, 1);
+  else {
+    const j = same[pos + (b.dataset.a === 'up' ? -1 : 1)];
+    if (j !== undefined) [xItems[i], xItems[j]] = [xItems[j], xItems[i]];
+  }
+  renderExtras();
+};
+$('x-op').innerHTML = Object.entries(R.EXTRA).map(([op, d]) => `<option value="${op}">${d.label}</option>`).join('');
+$('x-op').value = String(R.CH.BEND);
+$('x-add').onclick = () => {
+  const op = +$('x-op').value, d = R.decodeExtra(R.defaultExtra(op));
+  const c = cellAt(cur.ch, cur.row, false);
+  xItems.push({ after: !!(c && (c.note !== null || c.off)), op, values: d.values });
+  renderExtras();
+};
+$('x-cancel').onclick = () => $('extras').close();
+$('x-ok').onclick = () => {
+  snapshot();
+  const c = cellAt(cur.ch, cur.row, true);
+  const bytes = (it) => (it.raw ? it.raw : R.encodeExtra(it.op, it.values));
+  c.raw = xItems.filter((it) => !it.after).map(bytes);
+  c.post = xItems.filter((it) => it.after).map(bytes);
+  tidy(cur.ch, cur.row); changed(); $('extras').close(); renderAll();
+  status(`Row ${R.hex2(cur.row)}, channel ${cur.ch + 1}: ${xItems.length} extra command${xItems.length === 1 ? '' : 's'}.`);
+};
+$('extras').addEventListener('close', () => $('gridwrap').focus());
+// A double click on a cell opens its extras. It is counted here, on the
+// mouse-down: each click redraws the grid, so the browser's own dblclick
+// (both clicks on one element) never comes.
+let lastClick = { t: 0, ch: -1, row: -1 };
+
+// ---------------------------------------------------------------- help
+// What every instrument field does (synth.c, console_sys.h), shown on the
+// field's name and in the help window.
+const FIELD_HELP = {
+  wave: 'The waveform: sine, triangle, saw, pulse, noise, a sample, a hand-drawn wavetable, or one of five OPL-style sine variants (half, abs, quarter, alt, camel). For a wavetable or a sample, the box under the fields picks it, draws it and edits it.',
+  ratio: 'Pitch as a multiple of the note, times two: 1 = half (an octave down), 2 = the note, 3 = 1.5x (a fifth above), 4 = an octave up. A modulator at an odd ratio, such as 7 (3.5x), gives bell-like tones.',
+  detune: 'Cents up or down (-127 to 127). Small differences between operators give a chorus.',
+  level: 'For an operator you hear (a carrier): its loudness, (v/255)². For a modulator: how strongly it changes the tone of the operator it feeds (FM depth); 0 does nothing.',
+  width: 'The share of each cycle the wave rests (0-65535). A pulse at 32768 is a square, larger is thinner. Other waves are squeezed into the rest of the cycle: same pitch, thinner tone. 0 = off. Samples ignore it.',
+  flags: 'Add these up: 1 hard sync to the operator before, 2 ring modulation with the operator before, 4 short (metallic) noise, 8 samples without smoothing (crunchy), 16 a smooth wavetable.',
+  feedback: 'Op 1 only: the operator modulates itself. Brighter, saw-like, towards noise at 255.',
+  sustain_decay: '0 = the sustain level holds while the key is down; otherwise it keeps fading at this rate (envelope curve).',
+  attack: 'Time to full level: 1 ms × 10^(v/64), from 1 ms to about 10 s.',
+  decay: 'Time to fall from full to the sustain level (same curve as attack).',
+  sustain: 'The level held while the key is down, v/255.',
+  release: 'Time to fade out after the key is let go (same curve as attack).',
+  algorithm: 'How the four operators are connected (0-7): see Help, Algorithms.',
+  filter_mode: 'off, lowpass (darker), highpass (thinner), bandpass, notch.',
+  cutoff: 'The filter frequency: 20 Hz × 1000^(v/255), from 20 Hz to 20 kHz.',
+  resonance: 'A peak at the cutoff: 0 none, 255 nearly whistling on its own.',
+  filter_env_amount: 'How far the filter envelope moves the cutoff: up to ±6 octaves at ±127.',
+  glide: '0 = off; otherwise the time a new note glides from the last one (envelope curve).',
+  filter_attack: 'The filter envelope: as the operator envelopes, moving the cutoff by the filter env amount.',
+  lfo_wave: 'The LFO\'s waveform (a slow oscillator that moves something).',
+  lfo_target: 'What the LFO moves; add these up: 1 pitch (vibrato), 2 volume (tremolo), 4 width (pulse sweep), 8 cutoff, 16 position.',
+  lfo_rate: 'Speed: 0.05 Hz × 10^(v/85), from 0.05 to 50 Hz.',
+  lfo_depth: 'How far: pitch up to ±12 semitones × (d/255)², volume up to a full dip, width ±45%, cutoff ±4 octaves, position ±127.',
+  lfo_delay: 'Fade-in time after the note starts (envelope curve).',
+};
+FIELD_HELP.filter_decay = FIELD_HELP.filter_sustain = FIELD_HELP.filter_release = FIELD_HELP.filter_attack;
+const fieldHelp = (n) => FIELD_HELP[n] || FIELD_HELP[n.replace(/^lfo\d/, 'lfo')] || '';
+
+// The routing algorithms (synth.c algo_mod, algo_carriers; the YM2612's):
+// for each operator, the operators that modulate it, and the ones heard.
+const ALGO_MOD = [[0, 1, 2, 4], [0, 0, 3, 4], [0, 0, 2, 5], [0, 1, 0, 6], [0, 1, 0, 4], [0, 1, 1, 1], [0, 1, 0, 0], [0, 0, 0, 0]];
+const ALGO_CAR = [8, 8, 8, 8, 10, 14, 14, 15];
+const ALGO_TXT = [
+  'One chain, Op1 → Op2 → Op3 → Op4. The most FM: harsh, complex tones, distorted bass and leads.',
+  'Op1 and Op2 together into Op3 → Op4. Like 0, a little tamer.',
+  'Op1, and Op2 → Op3, together into Op4. Bass, brass.',
+  'Op1 → Op2, and Op3, together into Op4. Bass, brass, keys.',
+  'Two pairs: Op1 → Op2 and Op3 → Op4, both heard. Electric piano, organ, two sounds layered.',
+  'Op1 into each of Op2, Op3 and Op4, all three heard. Organ, brass, pads.',
+  'Op1 → Op2, plus Op3 and Op4 plain. One FM tone with two plain waves: organ, bells.',
+  'All four plain, mixed. No FM: layered waves, chorus (detune them), organ drawbars.',
+];
+function algoSvg(a) {
+  const level = [0, 0, 0, 0];                       // 0 = heard; a modulator one more than what it feeds
+  for (let pass = 0; pass < 4; pass++)
+    for (let t = 0; t < 4; t++) for (let m = 0; m < 4; m++) if (ALGO_MOD[a][t] >> m & 1) level[m] = Math.max(level[m], level[t] + 1);
+  const max = Math.max(...level), cols = [];
+  for (let o = 0; o < 4; o++) (cols[max - level[o]] = cols[max - level[o]] || []).push(o);
+  const W = 40, H = 26, BW = 30, BH = 18, rows = Math.max(...cols.map((c) => c.length));
+  const width = (max + 1) * W + 46, height = rows * H + 12, pos = [];
+  cols.forEach((c, x) => c.forEach((o, i) => { pos[o] = [8 + x * W, 6 + (rows - c.length) * H / 2 + i * H]; }));
+  let svg = '';
+  const outX = width - 26, outY = height / 2;
+  for (let t = 0; t < 4; t++) for (let m = 0; m < 4; m++) if (ALGO_MOD[a][t] >> m & 1)
+    svg += `<path class="wire" d="M${pos[m][0] + BW} ${pos[m][1] + BH / 2} L${pos[t][0]} ${pos[t][1] + BH / 2}"/>`;
+  for (let o = 0; o < 4; o++) if (ALGO_CAR[a] >> o & 1)
+    svg += `<path class="wire" d="M${pos[o][0] + BW} ${pos[o][1] + BH / 2} L${outX - 8} ${outY} L${outX} ${outY}"/>`;
+  svg += `<path class="fb" d="M${pos[0][0] + 6} ${pos[0][1]} C${pos[0][0] + 6} ${pos[0][1] - 7}, ${pos[0][0] + BW - 6} ${pos[0][1] - 7}, ${pos[0][0] + BW - 6} ${pos[0][1]}"/>`;
+  for (let o = 0; o < 4; o++)
+    svg += `<rect class="box${ALGO_CAR[a] >> o & 1 ? ' car' : ''}" x="${pos[o][0]}" y="${pos[o][1]}" width="${BW}" height="${BH}" rx="4"/>` +
+      `<text x="${pos[o][0] + BW / 2}" y="${pos[o][1] + 13}" text-anchor="middle">${o + 1}</text>`;
+  svg += `<text x="${outX + 3}" y="${outY + 4}">out</text>`;
+  return `<svg width="${width}" height="${height + 4}" viewBox="0 -4 ${width} ${height + 4}" role="img" aria-label="algorithm ${a}">${svg}</svg>`;
+}
+const fieldList = (fields) => '<dl>' + fields.map(([n]) => n).filter((n, i, all) => all.indexOf(n) === i && fieldHelp(n))
+  .map((n) => `<dt>${n.replace(/_/g, ' ')}</dt><dd>${escapeHtml(fieldHelp(n))}</dd>`).join('') + '</dl>';
+const HELP_TABS = {
+  Instruments: () => `
+    <p>An instrument is four sound generators, <b>operators</b> (the Op 1-4 tabs), and settings for the whole sound
+      (the Instrument tab). How the operators are connected is the instrument's <b>algorithm</b>. An operator you hear is a
+      <b>carrier</b>; one that feeds another is a <b>modulator</b>: you do not hear it, it changes the tone of the one it feeds
+      (FM, as in Yamaha's chips). An operator at level 0 is silent, so a simple sound uses one operator and leaves the rest at 0
+      (the converted Galway songs play on Op 2).</p>
+    <h4>Wavetables and samples</h4>
+    <p>With wave <b>wavetable</b>, the operator plays a single cycle you draw: drag the mouse over it, or start from a shape,
+      then round it to a chip's bits (4 for the Game Boy, 5 for the PC Engine, 8 for the Konami SCC). <b>Smooth</b> glides
+      between the steps instead of stepping. With wave <b>sample</b>, it plays a recorded sound: <b>Load sound…</b> takes a
+      sound file, and the sample plays at its rate on its root note, looping the shaded part if it has a loop.
+      Several operators can share a wave: <b>Copy</b> gives this one its own.</p>
+    <h4>Each operator (Op 1-4)</h4>${fieldList(R.OP_FIELDS)}
+    <h4>The whole instrument</h4>${fieldList(R.INST_FIELDS.filter(([n]) => !/^filter_(decay|sustain|release)$/.test(n) && !/^lfo2/.test(n)))}
+    <p>Filter attack, decay, sustain and release work like an operator's. LFO 2 has the same fields as LFO 1.
+      The volume a song plays at multiplies on top of everything: (v/255)².</p>
+    <h4>Ideas</h4>
+    <p><b>Chorus, a fuller voice:</b> algorithm 7, four equal operators, detune 0, +7, −7 and +12.
+      <b>Bells:</b> algorithm 4 or 6 with the modulator at ratio 7. <b>Electric piano:</b> algorithm 4, modulators with a short decay.
+      <b>A SID-style pulse sweep:</b> one pulse operator, LFO 1 target 4 (width). <b>Brighter or grittier:</b> raise Op 1's feedback.</p>`,
+  Algorithms: () => {
+    const ins = song.instruments[cur.inst], now = ins ? R.getField(ins.bytes, 80, 'u8') & 7 : -1;
+    return `<p>Which operator feeds which, from the left; blue operators are heard (carriers). The dashed loop is Op 1's feedback.
+      The lower the number, the more FM and the more complex the tone; the higher, the more it becomes plain waves mixed.
+      The same eight as the Yamaha YM2612 (Sega Mega Drive), which also numbers them.
+      ${ins ? `Click one to use it for <b>${escapeHtml(ins.name)}</b>.` : ''}</p>
+      <div class="algos">${ALGO_TXT.map((t, a) => `<button type="button" class="algo${a === now ? ' sel' : ''}" data-a="${a}">
+        <b>${a}</b> <span class="use">${a === now ? '· in use' : ''}</span>${algoSvg(a)}<div class="txt">${t}</div></button>`).join('')}</div>`;
+  },
+  'Patterns and keys': () => `
+    <h4>Columns</h4>
+    <p>Each channel has a note (or a release), an instrument, a volume and one effect.
+      <code>0xy</code> arpeggio +x +y semitones · <code>1xx</code>/<code>2xx</code> slide up/down xx cents a tick ·
+      <code>3xx</code> slide to the note · <code>4xy</code> vibrato x·8 cents at y Hz · <code>Axy</code> volume slide up x / down y ·
+      <code>Fxx</code> tempo xx bpm. 0, 1, 2, 4 and A last for their row. A pink <span class="k">*</span> marks a cell with
+      extra commands: ones that have no column (bends, sweeps, patches, tuning…), from an imported song or added
+      by hand. They last until changed, as in the song data.</p>
+    <h4>Keys</h4>
+    <p>Notes: <kbd>Z S X D C</kbd>… and <kbd>Q 2 W 3 E</kbd>… (two octaves), <kbd>1</kbd> release.
+      Hex columns: <kbd>0-9 A-F</kbd>. <kbd>Delete</kbd> clears, <kbd>Shift+Delete</kbd> the cell.
+      <kbd>Tab</kbd> next channel, <kbd>PgUp PgDn</kbd>, <kbd>Alt+↑↓</kbd> order position, <kbd>+ −</kbd> octave.
+      <kbd>Ctrl+Z</kbd> undo, <kbd>Ctrl+C/V</kbd> channel, <kbd>Ctrl+Shift+C/V</kbd> pattern.
+      <kbd>Space</kbd> play pattern, <kbd>Enter</kbd> play song, <kbd>Esc</kbd> stop.
+      <kbd>Shift+Enter</kbd> or a double click: the cell's extra commands.
+      <kbd>F1</kbd> this help.</p>
+    <h4>Playing</h4>
+    <p><b>▶ Song</b> plays from the order position on; <b>▶ Pattern</b> repeats the position. Either starts at once, with every
+      channel set up as the rows before left it there: instrument, volume, patches, running sweeps, tuning, vibrato and the rest.
+      A note still sounding from the position before is not heard.</p>
+    <h4>Files</h4>
+    <p>Songs are ordinary <code>.rsng</code> files; the tracker keeps its patterns and names in them too, so they open exactly
+      as saved. Songs made elsewhere open best effort, on a row grid; <b>exact import</b> puts one tick on each row instead,
+      so they sound exactly as before.</p>
+    <p><b>Open…</b> also takes ProTracker modules (<code>.mod</code>, 4 to 16 channels). Best effort keeps the module's
+      patterns and order, with its effects on the effect column where the tracker has one (the status line lists what is not
+      carried over); exact import plays it as ProTracker does, tick by tick. Each sample becomes an instrument playing it
+      without smoothing, as the Amiga did. Scream Tracker 3 (<code>.s3m</code>) and FastTracker 2 (<code>.xm</code>) modules
+      open the same way: each sample an instrument (an XM instrument's envelope fitted to its attack, decay, sustain and
+      release in best effort, played exactly in exact import). A module with more than 16 channels is packed onto 16: its
+      chords, doubled notes and echoes take turns on fewer channels, and where more than 16 notes sound at once, echoes and
+      inner chord voices go first; a notice says what was left out. Impulse Tracker (<code>.it</code>)
+      modules too, compressed samples included; their new note actions, filters and pitch envelopes are not carried over.</p>
+    <p>It takes MIDI files too (<code>.mid</code>, type 0 and 1). The instruments are always the same: 00-7F the 128
+      General MIDI programs by name, then the drum kit, all from DMXOPL3, an OPL3 bank by Shannon Freeman (MIT licence),
+      turned into this synth's instruments. A part plays its program (or the instrument its track name suggests: "bass",
+      "pad", "lead"…), with its volume and expression; it gets as many channels as it has notes at once, and MIDI channel
+      10 a channel per kind of drum. Up to 16 channels; what does not fit is listed.
+      A converted song is saved as a new <code>.rsng</code>.</p>`,
+};
+let helpTab = 'Instruments';
+function renderHelp() {
+  $('h-tabs').innerHTML = Object.keys(HELP_TABS).map((t) => `<button type="button" data-t="${t}" class="${t === helpTab ? 'sel' : ''}">${t}</button>`).join('');
+  $('h-body').innerHTML = HELP_TABS[helpTab]();
+}
+function openHelp(tab) { if (tab) helpTab = tab; renderHelp(); $('help').showModal(); }
+$('helpbtn').onclick = () => openHelp();
+$('insthelp').onclick = (e) => { e.preventDefault(); openHelp('Instruments'); };
+$('h-close').onclick = () => $('help').close();
+$('help').addEventListener('close', () => $('gridwrap').focus());
+$('h-tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) { helpTab = b.dataset.t; renderHelp(); } };
+$('h-body').onclick = (e) => {
+  const b = e.target.closest('.algo'), ins = song.instruments[cur.inst];
+  if (!b || !ins) return;
+  R.setField(ins.bytes, 80, 'u8', +b.dataset.a);
+  changed(true); renderHelp(); renderInstruments();
+  status(`${ins.name}: algorithm ${b.dataset.a}.`);
+};
+
+// ---------------------------------------------------------------- files
+function setSong(s, name, handle) {
+  stop();
+  song = s; fileName = name; fileHandle = handle || null;
+  Object.assign(cur, { order: 0, row: 0, ch: 0, col: 0, inst: 0 });
+  undo = []; dirty = false; instDirty = true;
+  chased = {}; R.chase(song, chased);     // every position's start, worked out now
+  document.title = `${song.name || name} · RetCon tracker`;
+  renderAll();
+}
+// A RetCon song, or a song of another kind converted on opening (a
+// ProTracker module, a Standard MIDI File); a converted one is saved as a
+// new .rsng, never over the file it came from.
+async function openBuffer(buf, name, handle) {
+  try {
+    const opts = { exact: $('exact').checked }, bytes = new Uint8Array(buf), rsng = /\.rsng$/i.test(name);
+    const kind = rsng ? null : R.isMidi(bytes) ? 'midi' : R.isXm(bytes) || R.isS3m(bytes) || R.isIt(bytes) ? 'tracked' : R.isMod(bytes) ? 'mod' : null, mod = !!kind;
+    const s = kind === 'midi' ? R.readMidi(buf, Object.assign({ bank: bank() }, opts)) : kind === 'mod' ? R.readMod(buf, opts)
+      : kind === 'tracked' ? R.readTracked(buf, opts) : R.readSong(buf, opts);
+    const stem = name.replace(/\.[^.]+$/, '');
+    if (mod && !s.name) s.name = stem;
+    setSong(s, mod ? stem + '.rsng' : name, mod ? null : handle);
+    if (mod) dirty = true;
+    status(`Opened ${name}. ${(s.notes || []).join(' ')}`);
+    if (s.lost && s.lost.length) showLost(name, s.lost);
+  } catch (e) { status(`Cannot open ${name}: ${e.message}`, true); }
+}
+// What an import left out of the music (channels or notes), said before anything is played.
+function showLost(name, lines) {
+  $('l-what').textContent = `${name} opened, but some of its music is not in the song:`;
+  $('l-list').replaceChildren(...lines.map((t) => Object.assign(document.createElement('li'), { textContent: t })));
+  $('lost').showModal();
+}
+$('l-ok').onclick = () => $('lost').close();
+async function openFile() {
+  if (dirty && !confirm('Discard the unsaved changes?')) return;
+  if (window.showOpenFilePicker) {
+    try {
+      const [h] = await showOpenFilePicker({ types: [{ description: 'RetCon song, module (MOD, S3M, XM, IT) or MIDI file', accept: { 'application/octet-stream': ['.rsng', '.mod', '.s3m', '.xm', '.it', '.mid', '.midi'] } }] });
+      const f = await h.getFile();
+      return openBuffer(await f.arrayBuffer(), f.name, h);
+    } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  $('file').click();
+}
+async function save(as) {
+  let bytes;
+  try { bytes = R.writeSong(song); } catch (e) { status('Cannot write the song: ' + e.message, true); return; }
+  const name = (song.name || 'song').replace(/[^\w\- ]+/g, '').trim().replace(/ +/g, '_') + '.rsng';
+  try {
+    if (!as && fileHandle && fileHandle.createWritable) {
+      const w = await fileHandle.createWritable(); await w.write(bytes); await w.close();
+    } else if (window.showSaveFilePicker) {
+      fileHandle = await showSaveFilePicker({ suggestedName: fileHandle ? fileName : name,
+        types: [{ description: 'RetCon song', accept: { 'application/octet-stream': ['.rsng'] } }] });
+      fileName = fileHandle.name;
+      const w = await fileHandle.createWritable(); await w.write(bytes); await w.close();
+    } else {
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([bytes])), download: as ? name : fileName });
+      a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    }
+    dirty = false;
+    status(`Saved ${fileHandle ? fileHandle.name : name} (${bytes.length} bytes).`);
+  } catch (e) { if (e.name !== 'AbortError') status('Cannot save: ' + e.message, true); }
+}
+
+// ---------------------------------------------------------------- wiring
+for (let o = 0; o <= 8; o++) $('octave').insertAdjacentHTML('beforeend', `<option${o === 4 ? ' selected' : ''}>${o}</option>`);
+$('i-preset').innerHTML = R.defaultInstruments().map((x, i) => `<option value="${i}">${x.name}</option>`).join('');
+$('new').onclick = () => { if (!dirty || confirm('Discard the unsaved changes?')) { setSong(R.newSong(4), 'song.rsng'); status('A new song.'); } };
+$('open').onclick = openFile;
+$('file').onchange = async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) openBuffer(await f.arrayBuffer(), f.name); };
+$('save').onclick = () => save(false);
+$('saveas').onclick = () => save(true);
+$('playsong').onclick = () => play('song');
+$('playpat').onclick = () => play('pattern');
+$('stop').onclick = stop;
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f && (!dirty || confirm('Discard the unsaved changes?'))) openBuffer(await f.arrayBuffer(), f.name);
+});
+window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+const num = (id, f) => { $(id).onchange = (e) => { f(+e.target.value); changed(); renderAll(); }; };
+$('s-name').oninput = (e) => { song.name = e.target.value; changed(); };
+$('s-auth').oninput = (e) => { song.auth = e.target.value; changed(); };
+$('s-licn').oninput = (e) => { song.licn = e.target.value; changed(); };
+$('s-date').onchange = (e) => { song.date = e.target.value.trim(); changed(); };
+num('s-bpm', (v) => { song.bpm = Math.max(1, Math.min(65535, v | 0)); playOn(); });
+num('s-tpb', (v) => { song.tpb = Math.max(1, Math.min(255, v | 0)); playOn(); });
+num('s-tpr', (v) => { song.ticksPerRow = Math.max(1, Math.min(255, v | 0)); playOn(); });
+num('s-rpb', (v) => { song.rowsPerBeat = Math.max(1, Math.min(64, v | 0)); });
+num('s-ch', (v) => { R.setChannels(song, v); cur.ch = Math.min(cur.ch, song.channels - 1); });
+num('p-rows', (v) => { snapshot(); R.setRows(pattern(), v); cur.row = Math.min(cur.row, pattern().rows - 1); });
+$('p-name').oninput = (e) => { pattern().name = e.target.value; changed(); renderOrder(); };
+
+$('order').onclick = (e) => { const li = e.target.closest('li'); if (li) setOrder(+li.dataset.k); };
+$('o-ins').onclick = () => { song.order.splice(cur.order + 1, 0, song.order[cur.order]); if (song.loop > cur.order) song.loop++; changed(); setOrder(cur.order + 1); };
+$('o-del').onclick = () => {
+  if (song.order.length < 2) return;
+  song.order.splice(cur.order, 1);
+  if (song.loop > cur.order || song.loop >= song.order.length) song.loop = Math.max(-1, song.loop - 1);
+  changed(); setOrder(Math.min(cur.order, song.order.length - 1));
+};
+$('o-dec').onclick = () => { song.order[cur.order] = Math.max(0, song.order[cur.order] - 1); changed(); setOrder(cur.order); };
+$('o-inc').onclick = () => { song.order[cur.order] = Math.min(song.patterns.length - 1, song.order[cur.order] + 1); changed(); setOrder(cur.order); };
+$('o-loop').onclick = () => { song.loop = cur.order; changed(); renderOrder(); };
+$('o-noloop').onclick = () => { song.loop = -1; changed(); renderOrder(); };
+$('p-new').onclick = () => {
+  song.patterns.push(R.newPattern(pattern().rows, song.channels));
+  song.order.splice(cur.order + 1, 0, song.patterns.length - 1);
+  if (song.loop > cur.order) song.loop++;
+  changed(); setOrder(cur.order + 1);
+};
+$('p-clone').onclick = () => {
+  const p = pattern();
+  song.patterns.push({ name: p.name ? p.name + ' copy' : '', rows: p.rows, cells: clone(p.cells) });
+  song.order.splice(cur.order + 1, 0, song.patterns.length - 1);
+  if (song.loop > cur.order) song.loop++;
+  changed(); setOrder(cur.order + 1);
+};
+
+$('insts').onclick = (e) => { const li = e.target.closest('li[data-k]'); if (li) { cur.inst = +li.dataset.k; renderInstruments(); renderCellInfo(); } };
+$('i-add').onclick = () => {
+  if (song.instruments.length >= 256) return status('A song has 256 instruments at most.', true);
+  const p = R.defaultInstruments()[+$('i-preset').value];
+  song.instruments.push({ name: p.name, bytes: p.bytes });
+  cur.inst = song.instruments.length - 1; changed(true); renderInstruments();
+};
+$('i-dup').onclick = () => {
+  const ins = song.instruments[cur.inst];
+  if (!ins || song.instruments.length >= 256) return;
+  song.instruments.push({ name: ins.name + ' copy', bytes: ins.bytes.slice() });
+  cur.inst = song.instruments.length - 1; changed(true); renderInstruments();
+};
+$('i-name').oninput = (e) => {
+  const ins = song.instruments[cur.inst];
+  if (!ins) return;
+  ins.name = e.target.value; changed();
+  const li = $('insts').querySelector(`li[data-k="${cur.inst}"]`);
+  if (li) li.textContent = `${R.hex2(cur.inst)} ${ins.name}`;
+};
+$('i-try').onmousedown = () => preview((+$('octave').value + 1) * 12, 'mouse');
+$('i-try').onmouseup = $('i-try').onmouseleave = () => release('mouse');
+$('optabs').onclick = (e) => { const b = e.target.closest('button'); if (b) { cur.op = +b.dataset.o; renderInstruments(); } };
+
+$('gridwrap').addEventListener('mousedown', (e) => {
+  const td = e.target.closest('td[data-ch]'), tr = e.target.closest('tr[data-r]');
+  if (!td || !tr) return;
+  cur.ch = +td.dataset.ch; cur.row = +tr.dataset.r;
+  const sp = e.target.closest('span[data-c]');
+  cur.col = sp ? +sp.dataset.c : 0;
+  const now = performance.now(), again = now - lastClick.t < 400 && lastClick.ch === cur.ch && lastClick.row === cur.row;
+  lastClick = again ? { t: 0, ch: -1, row: -1 } : { t: now, ch: cur.ch, row: cur.row };
+  renderGrid(); renderCellInfo();
+  $('gridwrap').focus();
+  if (again) { e.preventDefault(); openExtras(); }
+});
+
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if ($('extras').open || $('help').open) return;   // the popup has the keys
+  if (e.key === 'F1') { e.preventDefault(); return openHelp(); }
+  if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); return openExtras(); }
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) {
+    if (e.key === 'Escape' || e.key === 'Enter') t.blur();
+    return;
+  }
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.code === 'KeyZ') {
+    e.preventDefault();
+    const u = undo.pop();
+    if (u) { song.patterns[u.pi].cells = u.cells; song.patterns[u.pi].rows = u.rows; changed(); renderAll(); }
+    return;
+  }
+  if (mod && e.code === 'KeyC') {
+    e.preventDefault();
+    clip = e.shiftKey ? { all: true, cells: clone(pattern().cells) } : { all: false, cells: [clone(pattern().cells[cur.ch])] };
+    status(e.shiftKey ? 'Copied the pattern.' : `Copied channel ${cur.ch + 1}.`);
+    return;
+  }
+  if (mod && e.code === 'KeyV' && clip) {
+    e.preventDefault(); snapshot();
+    const p = pattern();
+    const chans = clip.all ? clip.cells.map((col, i) => [i, col]) : [[cur.ch, clip.cells[0]]];
+    for (const [ch, col] of chans) {
+      if (ch >= song.channels) continue;
+      for (let r = 0; r < col.length && (clip.all ? r : cur.row + r) < p.rows; r++) p.cells[ch][clip.all ? r : cur.row + r] = clone(col[r]);
+    }
+    changed(); renderAll(); return;
+  }
+  if (mod) return;
+  if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); setOrder(cur.order + (e.key === 'ArrowUp' ? -1 : 1)); return; }
+  switch (e.key) {
+    case 'ArrowUp': e.preventDefault(); return move(-1, 0);
+    case 'ArrowDown': e.preventDefault(); return move(1, 0);
+    case 'ArrowLeft': e.preventDefault(); return move(0, -1);
+    case 'ArrowRight': e.preventDefault(); return move(0, 1);
+    case 'PageUp': e.preventDefault(); return move(-16, 0);
+    case 'PageDown': e.preventDefault(); return move(16, 0);
+    case 'Home': e.preventDefault(); cur.row = 0; return move(0, 0);
+    case 'End': e.preventDefault(); cur.row = pattern().rows - 1; return move(0, 0);
+    case 'Tab': e.preventDefault(); cur.col = 0; cur.ch = (cur.ch + (e.shiftKey ? song.channels - 1 : 1)) % song.channels; return move(0, 0);
+    case ' ': e.preventDefault(); return playing ? stop() : play('pattern');
+    case 'Enter': e.preventDefault(); return play('song');
+    case 'Escape': e.preventDefault(); return stop();
+    case 'Delete': case 'Backspace': e.preventDefault(); return clearField(e.shiftKey);
+    case '+': $('octave').value = Math.min(8, +$('octave').value + 1); return;
+    case '-': $('octave').value = Math.max(0, +$('octave').value - 1); return;
+    default: break;
+  }
+  if (e.repeat) return;
+  if (cur.col === 0) {
+    if (e.code === 'Digit1') { e.preventDefault(); return enterOff(); }
+    if (e.code in NOTE_KEYS) {
+      e.preventDefault();
+      const n = (+$('octave').value + 1) * 12 + NOTE_KEYS[e.code];
+      preview(n, e.code);
+      return enterNote(n);
+    }
+  } else if (/^[0-9a-fA-F]$/.test(e.key)) { e.preventDefault(); return enterHex(parseInt(e.key, 16)); }
+});
+document.addEventListener('keyup', (e) => release(e.code));
+
+// a clicked button or box gives the keys back to the pattern
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button, input[type=checkbox]');
+  if (b && !b.closest('dialog')) setTimeout(() => { b.blur(); $('gridwrap').focus(); }, 0);
+});
+
+renderAll();
+$('gridwrap').focus();
+</script>
+</body>
+</html>
