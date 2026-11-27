@@ -20,7 +20,7 @@ A Node project with no dependencies (Node 24.22.1 or later):
 
 | Path | What it is |
 | --- | --- |
-| `page/` | the page (`tracker.html`) and its audio thread (`player-worklet.js`) |
+| `page/` | the page (`index.html`) and its audio thread (`player-worklet.js`) |
 | `src/` | the song library, ES modules: the chunk container and song commands (`format.js`), samples and wavetables (`waves.js`), tracker songs, compiling and reading back (`song.js`), the start state of a position (`chase.js`), ProTracker modules (`mod.js`), Scream Tracker 3, FastTracker 2 and Impulse Tracker modules (`tracked.js`), the General MIDI bank (`wopl.js`), MIDI files (`midi.js`); `index.js` gathers them as one object |
 | `converters/` | `midi2rsng.js` and `mod2rsng.js`: MIDI files and modules (MOD, S3M, XM, IT) to `.rsng` from the command line, on the same library |
 | `engine/player.wasm` | the audio engine, prebuilt (see [Licences](#licences)) |

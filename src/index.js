@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// RetCon songs: the library of the web tracker and the converters (page/tracker.html): the chunk container
+// RetCon songs: the library of the web tracker and the converters (page/index.html): the chunk container
 // (the RetCon chunk container), and a tracker song (patterns, an order list,
 // instruments) compiled to and read back from a .rsng (the RetCon song format,
 // the song section of RetCon's console_sys.h).

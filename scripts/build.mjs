@@ -6,7 +6,7 @@
 //
 //     node scripts/build.mjs [player.wasm] [out dir]        (npm run build)
 //
-// dist/index.html is page/tracker.html with the audio worklet, the engine
+// dist/index.html is page/index.html with the audio worklet, the engine
 // (engine/player.wasm, a prebuilt binary: engine/NOTICE.md), the song
 // library and the General MIDI instrument bank inlined; the bank's licence
 // is copied beside it. The song library is src/, ES modules: bundle() joins
@@ -56,7 +56,7 @@ function main() {
   const wasm = process.argv[2] || path.join(ROOT, 'engine', 'player.wasm');
   const out = process.argv[3] || path.join(ROOT, 'dist');
   if (!fs.existsSync(wasm)) throw new Error(`${wasm} is missing`);
-  const html = page('page/tracker.html', [
+  const html = page('page/index.html', [
     ['/*WORKLET_SRC*/""', JSON.stringify(fs.readFileSync(path.join(ROOT, 'page', 'player-worklet.js'), 'utf8'))],
     ['/*WASM_B64*/""', JSON.stringify(fs.readFileSync(wasm).toString('base64'))],
     ['/*RSNG_JS*/', bundle()],
