@@ -11,7 +11,7 @@ mixer. The tracker page runs it to play songs.
   tracker or of a modified version of it. All other rights are reserved.
   Copyright the RetCon authors.
 - **This build:** SHA-256 `7ee0958ee7f0a714a43a751e54543ec435f5b809fafd02aacf585cdada6099d8`. It exports `rp_init`, `rp_render` and
-  the rest of the calls `player-worklet.js` makes, which shows how it is
+  the rest of the calls `page/player-worklet.js` makes, which shows how it is
   driven.
 
 To update it, replace this file with a newer build from RetCon and run

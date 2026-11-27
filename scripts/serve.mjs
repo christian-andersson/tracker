@@ -4,7 +4,7 @@
 // web server delivers them (audio in an AudioWorklet rather than the page
 // fallback used from disk):
 //
-//     node serve.mjs [dir] [port]        (npm run serve)
+//     node scripts/serve.mjs [dir] [port]        (npm run serve)
 //
 // dir defaults to dist, port to 8000: http://127.0.0.1:8000/
 
@@ -13,7 +13,7 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));   // scripts/ is one below the root
 const dir = path.resolve(process.argv[2] || path.join(ROOT, 'dist'));
 const port = +(process.argv[3] || 8000);
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript',

@@ -19,7 +19,7 @@
 //      volume and expression, the notes at their times, written stably;
 //   7. the converters midi2rsng.js and mod2rsng.js: the same songs from the
 //      command line, with only the instruments used and the licences;
-//   8. the pages' copy of the library (build.mjs): the same names, the same
+//   8. the pages' copy of the library (scripts/build.mjs): the same names, the same
 //      bytes.
 
 import fs from 'fs';
@@ -27,7 +27,7 @@ import path from 'path';
 import vm from 'vm';
 import { fileURLToPath } from 'url';
 import RSNG from '../src/index.js';
-import { bundle } from '../build.mjs';
+import { bundle } from '../scripts/build.mjs';
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dirs = process.argv.length > 2 ? process.argv.slice(2) : [path.join(WEB, 'test', 'fixtures', 'martin-galway')];
@@ -275,7 +275,7 @@ let modBytes = null, modBest = null;
       'mod2rsng.js: the module as the tracker opens it');
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
-// 8. the pages' copy: the modules joined into one script (build.mjs) give the same library
+// 8. the pages' copy: the modules joined into one script (scripts/build.mjs) give the same library
 {
   const box = { globalThis: null, TextDecoder, TextEncoder };   // what a page has
   box.globalThis = box;

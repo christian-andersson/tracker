@@ -10,7 +10,7 @@ uploaded.
 The page runs the RetCon console's own audio engine (its built-in audio
 driver, synth and song player, and its stereo mixer) as WebAssembly
 (`engine/player.wasm`), so songs sound as they do on the console. Served over
-http the engine runs in an `AudioWorklet` (`player-worklet.js`); opened from
+http the engine runs in an `AudioWorklet` (`page/player-worklet.js`); opened from
 disk, where browsers refuse worklet modules, the same code runs on the page
 through a `ScriptProcessorNode`.
 
@@ -20,13 +20,13 @@ A Node project with no dependencies (Node 24.22.1 or later):
 
 | Path | What it is |
 | --- | --- |
-| `tracker.html`, `player-worklet.js` | the page and the audio thread |
+| `page/` | the page (`tracker.html`) and its audio thread (`player-worklet.js`) |
 | `src/` | the song library, ES modules: the chunk container and song commands (`format.js`), samples and wavetables (`waves.js`), tracker songs, compiling and reading back (`song.js`), the start state of a position (`chase.js`), ProTracker modules (`mod.js`), Scream Tracker 3, FastTracker 2 and Impulse Tracker modules (`tracked.js`), the General MIDI bank (`wopl.js`), MIDI files (`midi.js`); `index.js` gathers them as one object |
 | `converters/` | `midi2rsng.js` and `mod2rsng.js`: MIDI files and modules (MOD, S3M, XM, IT) to `.rsng` from the command line, on the same library |
 | `engine/player.wasm` | the audio engine, prebuilt (see [Licences](#licences)) |
 | `banks/dmxopl3/` | the General MIDI instruments (DMXOPL3, MIT) |
-| `build.mjs` | builds `dist/index.html`: the page with the engine, the worklet, the library (its modules joined into one script) and the bank inlined |
-| `serve.mjs` | serves `dist/` on `127.0.0.1` to try the page over http |
+| `scripts/build.mjs` | builds `dist/index.html`: the page with the engine, the worklet, the library (its modules joined into one script) and the bank inlined |
+| `scripts/serve.mjs` | serves `dist/` on `127.0.0.1` to try the page over http |
 | `test/` | the tests, with the Martin Galway songs they read (`test/fixtures/martin-galway/`) |
 | `.github/workflows/pages.yml` | tests every push and pull request; on `main`, builds the page and publishes it to GitHub Pages |
 
@@ -38,7 +38,7 @@ npm run midi2rsng -- tune.mid -o tune.rsng   # a MIDI file to a song
 npm run mod2rsng -- tune.it -o tune.rsng     # a module (MOD, S3M, XM, IT) to a song; --exact plays it tick by tick
 ```
 
-The library's modules keep to a form `build.mjs` joins without a bundler:
+The library's modules keep to a form `scripts/build.mjs` joins without a bundler:
 one-line `import { ... } from './x.js'`, `export` only in front of
 top-level declarations, and top-level names unique across `src/`.
 

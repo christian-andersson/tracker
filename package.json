@@ -6,9 +6,9 @@
   "type": "module",
   "engines": { "node": ">=24.22.1" },
   "scripts": {
-    "build": "node build.mjs",
+    "build": "node scripts/build.mjs",
     "test": "node test/rsng.test.mjs",
-    "serve": "node serve.mjs",
+    "serve": "node scripts/serve.mjs",
     "midi2rsng": "node converters/midi2rsng.js",
     "mod2rsng": "node converters/mod2rsng.js"
   }
