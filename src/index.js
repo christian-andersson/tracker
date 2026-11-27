@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// RetCon songs: the library of the web tracker and the converters (tracker.html): the chunk container
+// RetCon songs: the library of the web tracker and the converters (page/index.html): the chunk container
 // (the RetCon chunk container), and a tracker song (patterns, an order list,
 // instruments) compiled to and read back from a .rsng (the RetCon song format,
 // the song section of RetCon's console_sys.h).
@@ -13,14 +13,14 @@
 // row grid, and every command that has no column kept in the cell as it is.
 //
 // The modules of src/ as one object: `import RSNG from` this file (Node),
-// or the pages' inlined copy (build.mjs), which sets globalThis.RSNG.
+// or the pages' inlined copy (scripts/build.mjs), which sets globalThis.RSNG.
 
 import { CH, COMMAND_NAMES, FILTERS, FX_LETTERS, INSTRUMENT_SIZE, INST_FIELDS, NO_LOOP, OP_FIELDS, WAVES, crc32, defaultInstruments, envMs, getField, hex2, makeInstrument, msEnv, noteName, rawName, readContainer, setField, writeContainer } from './format.js';
 import { NO_WAVE, OP_TABLE_SMOOTH, SAMPLE_FORMATS, TABLE_SHAPES, WAVE_SAMPLE, WAVE_TABLE, getU32, newSample, newTable, quantizeTable, sampleFrame, setTableLength, setU32, shapeTable, waveUsers } from './waves.js';
 import { EXTRA, PATCH_FIELDS, SWEEP_MODES, cellEmpty, compileSong, decodeExtra, defaultExtra, emptyCell, encodeExtra, flattenChannel, newPattern, newSong, playOrder, readSong, setChannels, setRows, tickMs, writeSong } from './song.js';
 import { chase, entryBytes, writePlay } from './chase.js';
-import { isMod, readMod } from './mod.js';
-import { isIt, isS3m, isXm, readTracked } from './tracked.js';
+import { isMod } from './mod.js';
+import { isIt, isS3m, isXm, readMod, readTracked } from './tracked.js';
 import { BANK_NOTICE, gmBank } from './wopl.js';
 import { isMidi, keepUsedInstruments, midiChannels, readMidi } from './midi.js';
 

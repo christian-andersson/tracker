@@ -4,9 +4,9 @@
 // (where browsers load no module files and no worklet modules) or from any
 // static host:
 //
-//     node build.mjs [player.wasm] [out dir]        (npm run build)
+//     node scripts/build.mjs [player.wasm] [out dir]        (npm run build)
 //
-// dist/index.html is tracker.html with the audio worklet, the engine
+// dist/index.html is page/index.html with the audio worklet, the engine
 // (engine/player.wasm, a prebuilt binary: engine/NOTICE.md), the song
 // library and the General MIDI instrument bank inlined; the bank's licence
 // is copied beside it. The song library is src/, ES modules: bundle() joins
@@ -19,7 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));   // scripts/ is one below the root
 const SRC = path.join(ROOT, 'src');
 const BANK_DIR = path.join(ROOT, 'banks', 'dmxopl3'), BANK = path.join(BANK_DIR, 'DMXOPL3-by-sneakernets-GS.wopl');
 
@@ -32,7 +32,7 @@ export function bundle() {
     for (const line of text.split('\n'))
       if (/^\s*(import|export)\b/.test(line) && !/^import \{[^}]*\} from '\.\/[\w-]+\.js';$/.test(line) &&
           !/^export (function|const|let|class) /.test(line) && line !== 'export default RSNG;')
-        throw new Error(`src/${name}.js: "${line.trim()}" is not a form build.mjs can join`);
+        throw new Error(`src/${name}.js: "${line.trim()}" is not a form scripts/build.mjs can join`);
     const body = text.split('\n')
       .filter((l) => !/^import \{[^}]*\} from '\.\/[\w-]+\.js';$/.test(l) && l !== 'export default RSNG;')
       .map((l) => l.replace(/^export (function|const|let|class) /, '$1 '))
@@ -56,8 +56,8 @@ function main() {
   const wasm = process.argv[2] || path.join(ROOT, 'engine', 'player.wasm');
   const out = process.argv[3] || path.join(ROOT, 'dist');
   if (!fs.existsSync(wasm)) throw new Error(`${wasm} is missing`);
-  const html = page('tracker.html', [
-    ['/*WORKLET_SRC*/""', JSON.stringify(fs.readFileSync(path.join(ROOT, 'player-worklet.js'), 'utf8'))],
+  const html = page('page/index.html', [
+    ['/*WORKLET_SRC*/""', JSON.stringify(fs.readFileSync(path.join(ROOT, 'page', 'player-worklet.js'), 'utf8'))],
     ['/*WASM_B64*/""', JSON.stringify(fs.readFileSync(wasm).toString('base64'))],
     ['/*RSNG_JS*/', bundle()],
     ['/*BANK_B64*/""', JSON.stringify(fs.readFileSync(BANK).toString('base64'))]]);
@@ -69,5 +69,5 @@ function main() {
 
 const direct = (() => { try { return fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url); } catch { return false; } })();
 if (direct) {
-  try { main(); } catch (e) { console.error('build.mjs: ' + e.message); process.exit(1); }
+  try { main(); } catch (e) { console.error('scripts/build.mjs: ' + e.message); process.exit(1); }
 }

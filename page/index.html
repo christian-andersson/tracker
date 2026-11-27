@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <!-- The RetCon tracker: write, open, play and save RetCon songs (.rsng) in
-     the browser. `npm run build` (build.mjs) builds it into one self-contained file,
+     the browser. `npm run build` (scripts/build.mjs) builds it into one self-contained file,
      dist/index.html, with the song library (src/), the audio worklet, the
      General MIDI bank and the WebAssembly engine (engine/player.wasm) inlined,
      so it opens straight from disk. -->
@@ -227,7 +227,7 @@
 </dialog>
 
 <dialog id="lost">
-  <h3>Not everything fit</h3>
+  <h3>Not as in the original</h3>
   <p class="sub" id="l-what"></p>
   <ul id="l-list"></ul>
   <div class="row" style="justify-content:flex-end; margin-top:12px">
@@ -952,14 +952,14 @@ const HELP_TABS = {
     <p>Songs are ordinary <code>.rsng</code> files; the tracker keeps its patterns and names in them too, so they open exactly
       as saved. Songs made elsewhere open best effort, on a row grid; <b>exact import</b> puts one tick on each row instead,
       so they sound exactly as before.</p>
-    <p><b>Open…</b> also takes ProTracker modules (<code>.mod</code>, 4 to 16 channels). Best effort keeps the module's
+    <p><b>Open…</b> also takes ProTracker modules (<code>.mod</code>, up to 99 channels). Best effort keeps the module's
       patterns and order, with its effects on the effect column where the tracker has one (the status line lists what is not
       carried over); exact import plays it as ProTracker does, tick by tick. Each sample becomes an instrument playing it
       without smoothing, as the Amiga did. Scream Tracker 3 (<code>.s3m</code>) and FastTracker 2 (<code>.xm</code>) modules
       open the same way: each sample an instrument (an XM instrument's envelope fitted to its attack, decay, sustain and
       release in best effort, played exactly in exact import). A module with more than 16 channels is packed onto 16: its
       chords, doubled notes and echoes take turns on fewer channels, and where more than 16 notes sound at once, echoes and
-      inner chord voices go first; a notice says what was left out. Impulse Tracker (<code>.it</code>)
+      inner chord voices go first; a notice says the song is rearranged, and what was left out. Impulse Tracker (<code>.it</code>)
       modules too, compressed samples included; their new note actions, filters and pitch envelopes are not carried over.</p>
     <p>It takes MIDI files too (<code>.mid</code>, type 0 and 1). The instruments are always the same: 00-7F the 128
       General MIDI programs by name, then the drum kit, all from DMXOPL3, an OPL3 bank by Shannon Freeman (MIT licence),
@@ -1014,9 +1014,9 @@ async function openBuffer(buf, name, handle) {
     if (s.lost && s.lost.length) showLost(name, s.lost);
   } catch (e) { status(`Cannot open ${name}: ${e.message}`, true); }
 }
-// What an import left out of the music (channels or notes), said before anything is played.
+// What an import changed or left out of the music (channels rearranged, notes left out), said before anything is played.
 function showLost(name, lines) {
-  $('l-what').textContent = `${name} opened, but some of its music is not in the song:`;
+  $('l-what').textContent = `${name} opened, changed to fit the song player:`;
   $('l-list').replaceChildren(...lines.map((t) => Object.assign(document.createElement('li'), { textContent: t })));
   $('lost').showModal();
 }

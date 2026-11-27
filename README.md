@@ -10,7 +10,7 @@ uploaded.
 The page runs the RetCon console's own audio engine (its built-in audio
 driver, synth and song player, and its stereo mixer) as WebAssembly
 (`engine/player.wasm`), so songs sound as they do on the console. Served over
-http the engine runs in an `AudioWorklet` (`player-worklet.js`); opened from
+http the engine runs in an `AudioWorklet` (`page/player-worklet.js`); opened from
 disk, where browsers refuse worklet modules, the same code runs on the page
 through a `ScriptProcessorNode`.
 
@@ -20,13 +20,13 @@ A Node project with no dependencies (Node 24.22.1 or later):
 
 | Path | What it is |
 | --- | --- |
-| `tracker.html`, `player-worklet.js` | the page and the audio thread |
+| `page/` | the page (`index.html`) and its audio thread (`player-worklet.js`) |
 | `src/` | the song library, ES modules: the chunk container and song commands (`format.js`), samples and wavetables (`waves.js`), tracker songs, compiling and reading back (`song.js`), the start state of a position (`chase.js`), ProTracker modules (`mod.js`), Scream Tracker 3, FastTracker 2 and Impulse Tracker modules (`tracked.js`), the General MIDI bank (`wopl.js`), MIDI files (`midi.js`); `index.js` gathers them as one object |
 | `converters/` | `midi2rsng.js` and `mod2rsng.js`: MIDI files and modules (MOD, S3M, XM, IT) to `.rsng` from the command line, on the same library |
 | `engine/player.wasm` | the audio engine, prebuilt (see [Licences](#licences)) |
 | `banks/dmxopl3/` | the General MIDI instruments (DMXOPL3, MIT) |
-| `build.mjs` | builds `dist/index.html`: the page with the engine, the worklet, the library (its modules joined into one script) and the bank inlined |
-| `serve.mjs` | serves `dist/` on `127.0.0.1` to try the page over http |
+| `scripts/build.mjs` | builds `dist/index.html`: the page with the engine, the worklet, the library (its modules joined into one script) and the bank inlined |
+| `scripts/serve.mjs` | serves `dist/` on `127.0.0.1` to try the page over http |
 | `test/` | the tests, with the Martin Galway songs they read (`test/fixtures/martin-galway/`) |
 | `.github/workflows/pages.yml` | tests every push and pull request; on `main`, builds the page and publishes it to GitHub Pages |
 
@@ -38,7 +38,7 @@ npm run midi2rsng -- tune.mid -o tune.rsng   # a MIDI file to a song
 npm run mod2rsng -- tune.it -o tune.rsng     # a module (MOD, S3M, XM, IT) to a song; --exact plays it tick by tick
 ```
 
-The library's modules keep to a form `build.mjs` joins without a bundler:
+The library's modules keep to a form `scripts/build.mjs` joins without a bundler:
 one-line `import { ... } from './x.js'`, `export` only in front of
 top-level declarations, and top-level names unique across `src/`.
 
@@ -59,7 +59,7 @@ top-level declarations, and top-level names unique across `src/`.
   patterns of 64 rows, equal patterns shared. A command between rows moves
   to the nearest one. **Exact import** lays them on one tick a row instead,
   so they sound exactly as before, in long patterns.
-- **ProTracker modules** (`.mod`, 4 to 16 channels) open too, converted
+- **ProTracker modules** (`.mod`, 1 to 99 channels) open too, converted
   on opening. Best effort keeps the module's patterns, order and loop
   (`Bxx`), its effects on the effect column where there is one or as extra
   commands (`8xx`, `9xx`), and lists the ones it cannot carry over. Exact
@@ -76,7 +76,7 @@ top-level declarations, and top-level names unique across `src/`.
   operator's attack, decay, sustain and release, and lists what it cannot
   carry over; exact import plays the module tick by tick, envelopes,
   fade-out, linear or Amiga pitch, global volume and panning included.
-- **More than 16 channels** (common in XM and IT): the song player has
+- **More than 16 channels** (common in XM and IT, and in MOD's `xxCH`): the song player has
   16, but a module rarely plays on all of its channels at once. Chords,
   doubled notes and echoes (the same note a few rows later on the next
   channel, quieter) each take a channel that is idle most of the time.
@@ -87,7 +87,10 @@ top-level declarations, and top-level names unique across `src/`.
   sound at once, a note that has sounded a while gives way to a new one,
   and echoes, doubled notes and the inner voices of chords go before an
   instrument's leading note. Speed, tempo, breaks and jumps are kept.
-- **Left out:** when an import cannot keep all of the music (module
+  A packed song is always flagged as rearranged: its notes sit on other
+  channels than in the module, so its patterns are not the original's.
+- **Not as in the original:** when an import rearranges the music (a
+  module packed onto 16 channels) or cannot keep all of it (module
   notes where more than 16 sound at once, MIDI notes beyond 16 channels,
   drums the kit has no sound for), the tracker says so in a notice on opening, and the converters
   print a warning for each.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The audio thread of the RetCon tracker (tracker.html): runs
+// The audio thread of the RetCon tracker (page/index.html): runs
 // player.wasm, the console's audio driver and mixer, one block of
 // RETCON_AUDIO_FRAMES frames at a time, and hands the browser 128 at a time.
 

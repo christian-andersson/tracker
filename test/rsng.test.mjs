@@ -19,7 +19,7 @@
 //      volume and expression, the notes at their times, written stably;
 //   7. the converters midi2rsng.js and mod2rsng.js: the same songs from the
 //      command line, with only the instruments used and the licences;
-//   8. the pages' copy of the library (build.mjs): the same names, the same
+//   8. the pages' copy of the library (scripts/build.mjs): the same names, the same
 //      bytes.
 
 import fs from 'fs';
@@ -27,7 +27,7 @@ import path from 'path';
 import vm from 'vm';
 import { fileURLToPath } from 'url';
 import RSNG from '../src/index.js';
-import { bundle } from '../build.mjs';
+import { bundle } from '../scripts/build.mjs';
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dirs = process.argv.length > 2 ? process.argv.slice(2) : [path.join(WEB, 'test', 'fixtures', 'martin-galway')];
@@ -177,6 +177,37 @@ let modBytes = null, modBest = null;
   const sw = mod.slice();
   for (let i = 0; i + 1 < 1084 + 1024; i += 2) { const t = sw[i]; sw[i] = sw[i + 1]; sw[i + 1] = t; }   // header and pattern 0
   check(json(R.readMod(sw.buffer).patterns) === json(be.patterns), 'module: bytes swapped in pairs read back the same');
+  // a 20-channel module (20CH), one pattern, one looping sample: packed onto 16 or fewer
+  const wide = (cellsAt) => {
+    const n = 20, w = new Uint8Array(1084 + 64 * 4 * n + 64);
+    const p16 = (o, v) => { w[o] = v >> 8; w[o + 1] = v & 255; };
+    w.set(Buffer.from('Wide module'), 0); w.set(Buffer.from('loop'), 20); p16(42, 32); w[45] = 64; p16(46, 0); p16(48, 32);
+    w[950] = 1; w.set(Buffer.from('20CH'), 1080);
+    for (let r = 0; r < 64; r++) for (const [c, per, fx, prm] of cellsAt(r)) {
+      const o = 1084 + (r * n + c) * 4, smp = per ? 1 : 0;
+      w[o] = (smp & 0xF0) | per >> 8; w[o + 1] = per & 255; w[o + 2] = (smp & 15) << 4 | fx; w[o + 3] = prm;
+    }
+    for (let i = 0; i < 64; i++) w[1084 + 64 * 4 * n + i] = i % 16 < 8 ? 64 : 192;
+    return w.buffer;
+  };
+  const per = (k) => [856, 808, 762, 720, 678, 640, 604, 570, 538, 508, 480, 453, 428, 404, 381, 360, 339, 320, 302, 285, 269][k];
+  // taking turns: a note on channel r at row r, then off (EC0) on the row after
+  const tb = wide((r) => (r < 20 ? [[r, per(r), 0, 0]] : []).concat(r && r <= 20 ? [[r - 1, 0, 0xE, 0xC0]] : []));
+  const tp = R.readMod(tb), tpx = R.readMod(tb, { exact: true }), tn = [], tpan = [];
+  tp.patterns[0].cells.forEach((col) => col.forEach((c, r) => { if (c && c.note !== null) { tn.push(c.note); if (r > 0 && c.raw.some((x) => x[0] === R.CH.POSITION)) tpan.push(r); } }));
+  check(tp.channels < 16 && tp.lost.length === 1 && new RegExp(`^The song is rearranged .*20 channels are packed into ${tp.channels},`).test(tp.lost[0]) &&
+    json(tn.sort((x, y) => x - y)) === json(Array.from({ length: 20 }, (_, k) => 48 + k)) &&
+    tpan.length === 19 && /^A 20-channel module/.test(tp.notes[0]) && json(moduleNotes(tp, 4000)) === json(moduleNotes(tpx, 4000)),
+    'module: 20 channels taking turns packed onto fewer, every note kept with its channel\'s pan, best effort and exact alike');
+  // 20 notes at once: 16 kept, the rest told to the user
+  const ab20 = wide((r) => (r === 0 ? Array.from({ length: 20 }, (_, c) => [c, per(c), 0, 0]) : []));
+  const ap = R.readMod(ab20), apx = R.readMod(ab20, { exact: true });
+  check(ap.channels === 16 && ap.lost.length === 2 && /^The song is rearranged/.test(ap.lost[0]) && /^4 notes left out where more than 16 sounded at once/.test(ap.lost[1]) &&
+    json(apx.lost) === json(ap.lost), 'module: 20 notes at once on 20 channels: 16 kept, what is left out told to the user');
+  for (const [sg, what] of [[tp, 'packed best effort'], [tpx, 'packed exact']]) {
+    const out = R.writeSong(sg);
+    check(same(R.writeSong(R.readSong(out.buffer)), out), `module (${what}): written and read back stably`);
+  }
 }
 // 6. a MIDI file, with the General MIDI instruments of DMXOPL3
 {
@@ -244,7 +275,7 @@ let modBytes = null, modBest = null;
       'mod2rsng.js: the module as the tracker opens it');
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
-// 8. the pages' copy: the modules joined into one script (build.mjs) give the same library
+// 8. the pages' copy: the modules joined into one script (scripts/build.mjs) give the same library
 {
   const box = { globalThis: null, TextDecoder, TextEncoder };   // what a page has
   box.globalThis = box;
@@ -436,7 +467,7 @@ let modBytes = null, modBest = null;
   wp.push(0); for (let r = 1; r < 32; r++) wp.push(0);
   wd.setUint16(PAT, wp.length, true); wideIt.set(wp, PAT + 8);
   const wi = R.readTracked(wideIt.buffer), wix = R.readTracked(wideIt.buffer, { exact: true });
-  check(wi.channels === 16 && wi.lost.length === 1 && /^4 notes left out where more than 16 sounded at once/.test(wi.lost[0]) &&
+  check(wi.channels === 16 && wi.lost.length === 2 && /^The song is rearranged/.test(wi.lost[0]) && /^4 notes left out where more than 16 sounded at once/.test(wi.lost[1]) &&
     json(wix.lost) === json(wi.lost), 'IT: 20 notes at once on 20 channels: 16 kept, what is left out told to the user');
   // 20 channels taking turns (a note each, then off): packed onto fewer channels, nothing lost, each note with its pan
   const turn = (cellsAt) => {
@@ -449,13 +480,14 @@ let modBytes = null, modBest = null;
   const tp = R.readTracked(tb), tpx = R.readTracked(tb, { exact: true });
   const tn = [], tpan = [];
   tp.patterns[0].cells.forEach((col) => col.forEach((c, r) => { if (c && c.note !== null) { tn.push(c.note); const pr = c.raw.find((x) => x[0] === R.CH.POSITION && r > 0); if (pr) tpan.push(pr[1]); } }));
-  check(tp.channels < 16 && json(tp.lost) === json([]) && json(tn.sort((x, y) => x - y)) === json(Array.from({ length: 20 }, (_, k) => 60 + k)) &&
+  check(tp.channels < 16 && tp.lost.length === 1 && new RegExp(`^The song is rearranged .*20 channels are packed into ${tp.channels},`).test(tp.lost[0]) &&
+    json(tn.sort((x, y) => x - y)) === json(Array.from({ length: 20 }, (_, k) => 60 + k)) &&
     tpan.length >= 19 && json(moduleNotes(tp, 4000)) === json(moduleNotes(tpx, 4000)),
     'IT: 20 channels taking turns packed onto fewer, every note kept with its channel\'s pan, best effort and exact alike');
   // 16 held notes, then at row 2 an echo of one of them and a new note: the echo is the one left out
   const eb = turn((r) => (r === 0 ? Array.from({ length: 16 }, (_, c) => [c, 60 + c, 64]) : r === 2 ? [[16, 60, 32], [17, 90, 64]] : []));
   const ep = R.readTracked(eb), row2 = ep.patterns[0].cells.map((col) => col[2]).filter((c) => c && c.note !== null).map((c) => c.note);
-  check(ep.channels === 16 && json(row2) === json([90]) && /^1 note left out/.test(ep.lost[0] || ''),
+  check(ep.channels === 16 && json(row2) === json([90]) && /^1 note left out/.test(ep.lost[1] || ''),
     'IT: with all 16 channels sounding, a new note takes a channel and the echo is left out');
   for (const [sg, what] of [[it, 'IT best effort'], [itx, 'IT exact']]) {
     const out = R.writeSong(sg);
