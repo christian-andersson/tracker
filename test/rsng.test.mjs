@@ -20,7 +20,10 @@
 //   7. the converters midi2rsng.js and mod2rsng.js: the same songs from the
 //      command line, with only the instruments used and the licences;
 //   8. the pages' copy of the library (scripts/build.mjs): the same names, the same
-//      bytes.
+//      bytes;
+//   11. the emulated 6510 and C64, and SID tunes made here (a PSID, the same
+//      music as an RSID on a raster interrupt, a PSID with samples through the
+//      volume register): their notes, loop, samples and the converter.
 
 import fs from 'fs';
 import path from 'path';
@@ -493,6 +496,89 @@ let modBytes = null, modBest = null;
     const out = R.writeSong(sg);
     check(same(R.writeSong(R.readSong(out.buffer)), out), `${what}: written and read back stably`);
   }
+}
+// 11. the 6510, the C64 and SID tunes, made here
+{
+  // the processor: decimal mode and a few undocumented opcodes
+  const run = (code, setup = () => {}) => {
+    const mem = new Uint8Array(0x10000); mem.set(code, 0x200);
+    const cpu = new R.Cpu6510((a) => mem[a], (a, v) => { mem[a] = v; });
+    cpu.pc = 0x200; setup(cpu, mem);
+    let cyc = 0; while (mem[cpu.pc] !== 0x00) cyc += cpu.step();
+    return { cpu, mem, cyc };
+  };
+  const dec = run([0xF8, 0x18, 0xA9, 0x19, 0x69, 0x28, 0x85, 0x10, 0x38, 0xA9, 0x42, 0xE9, 0x15, 0x85, 0x11]);   // SED; 19+28; 42-15
+  check(dec.mem[0x10] === 0x47 && dec.mem[0x11] === 0x27, '6510: decimal-mode ADC and SBC');
+  const ill = run([0xA7, 0x20, 0xA9, 0x0F, 0x87, 0x21, 0xC7, 0x22, 0xA2, 0x0C, 0xCB, 0x02], (c, m) => { m[0x20] = 0x5A; m[0x22] = 0x10; });
+  check(ill.cpu.x === (0x0F & 0x0C) - 2 && ill.mem[0x21] === (0x0F & 0x5A) && ill.mem[0x22] === 0x0F,
+    '6510: LAX, SAX, DCP and SBX, undocumented, as the chip does them');
+  const pg = run([0xA2, 0x01, 0xBD, 0xFF, 0x02]);   // LDX #1; LDA $02FF,X crosses a page
+  check(pg.cyc === 2 + 5, '6510: an indexed read across a page takes a cycle more');
+
+  // a PSID: four notes, a new one every four frames (gate off and on again in the same frame), looping
+  const PAL = 985248, fn = (hz) => Math.round(hz * 16777216 / PAL), freqs = [261.6256, 329.6276, 391.9954, 523.2511].map(fn);
+  const music = (load) => {
+    const m = new Uint8Array(0x200);
+    m.set([0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0xA9, 0x09, 0x8D, 0x05, 0xD4, 0xA9, 0xF0, 0x8D, 0x06, 0xD4,
+      0xA9, 0x00, 0x8D, 0x02, 0xD4, 0xA9, 0x08, 0x8D, 0x03, 0xD4, 0xA9, 0x00, 0x85, 0xFB, 0x85, 0xFC, 0x60], 0);   // init at +0
+    const play = [0xC6, 0xFB, 0x10, 0x00, 0xA9, 0x03, 0x85, 0xFB, 0xA6, 0xFC,
+      0xBD, 0x80, (load >> 8), 0x8D, 0x00, 0xD4, 0xBD, 0x84, (load >> 8), 0x8D, 0x01, 0xD4,
+      0xA9, 0x40, 0x8D, 0x04, 0xD4, 0xA9, 0x41, 0x8D, 0x04, 0xD4, 0xE8, 0xE0, 0x04, 0xD0, 0x02, 0xA2, 0x00, 0x86, 0xFC, 0x60];
+    play[3] = play.length - 1 - 4;                       // BPL to the RTS
+    m.set(play, 0x20);                                   // play at +$20
+    freqs.forEach((f, k) => { m[0x80 + k] = f & 0xFF; m[0x84 + k] = f >> 8; });
+    return m;
+  };
+  const psid = ({ magic = 'PSID', init, play, data, load = 0x1000, name = 'Test tune' }) => {
+    const h = new Uint8Array(0x7C), hd = new DataView(h.buffer);
+    h.set(Buffer.from(magic), 0); hd.setUint16(4, 2); hd.setUint16(6, 0x7C); hd.setUint16(8, load);
+    hd.setUint16(0x0A, init); hd.setUint16(0x0C, play); hd.setUint16(0x0E, 1); hd.setUint16(0x10, 1);
+    h.set(Buffer.from(name), 0x16); h.set(Buffer.from('Tester'), 0x36); h.set(Buffer.from('2026 here'), 0x56); hd.setUint16(0x76, 0x14);
+    const f = new Uint8Array(0x7C + data.length); f.set(h); f.set(data, 0x7C); return f.buffer;
+  };
+  const P = psid({ init: 0x1000, play: 0x1020, data: music(0x1000) });
+  const head = R.readSidFile(P);
+  check(R.isSid(new Uint8Array(P)) && head.init === 0x1000 && head.play === 0x1020 && head.name === 'Test tune' && !head.real && !head.ntsc,
+    'SID: a PSID header read');
+  const pb = R.readSid(P, { maxSeconds: 30 }), px = R.readSid(P, { maxSeconds: 30, exact: true });
+  const colNotes = (s, ch, n) => s.patterns[s.order[0]].cells[ch].map((c, r) => (c && c.note !== null ? `${r}:${c.note}` : null)).filter(Boolean).slice(0, n);
+  check(pb.channels === 3 && pb.ticksPerRow === 4 && json(colNotes(pb, 0, 4)) === json(['0:60', '1:64', '2:67', '3:72']) && pb.loop === 0 &&
+    pb.order.length === 1 && pb.patterns[0].rows === 4, 'SID: best effort: a note every 4 frames on a row each, the 16-frame loop found');
+  check(json(colNotes(px, 0, 4)) === json(['0:60', '4:64', '8:67', '12:72']) && json(moduleNotes(pb, 3000)) === json(moduleNotes(px, 3000)),
+    'SID: exact import: one frame a row, the same notes at the same times as best effort');
+  check(/^The song is rebuilt from what the tune wrote/.test(pb.lost[0]) && pb.instruments.length === 1 && pb.instruments[0].name === 'Pulse',
+    'SID: always told it is rebuilt; one sound, one pulse instrument');
+  // the same music as an RSID: init installs a raster interrupt that calls play once a frame
+  const rd = music(0x1000);
+  rd.set([0x20, 0x20, 0x10, 0xA9, 0x01, 0x8D, 0x19, 0xD0, 0x4C, 0x81, 0xEA], 0x100);   // IRQ: JSR play; ack; KERNAL exit
+  rd.set([0x78, 0xA9, 0x00, 0x8D, 0x14, 0x03, 0xA9, 0x11, 0x8D, 0x15, 0x03, 0xA9, 0x7F, 0x8D, 0x0D, 0xDC, 0xAD, 0x0D, 0xDC,
+    0xA9, 0x1B, 0x8D, 0x11, 0xD0, 0xA9, 0x80, 0x8D, 0x12, 0xD0, 0xA9, 0x01, 0x8D, 0x1A, 0xD0, 0x20, 0x00, 0x10, 0x58, 0x60], 0x140);
+  const rb = R.readSid(psid({ magic: 'RSID', init: 0x1140, play: 0, data: rd }), { maxSeconds: 30 });
+  check(R.readSidFile(psid({ magic: 'RSID', init: 0x1140, play: 0, data: rd })).real && json(moduleNotes(rb, 3000)) === json(moduleNotes(pb, 3000)),
+    'SID: the same music as an RSID, on its own raster interrupt, gives the same notes');
+  // samples through the volume register: a burst of 64 writes every 8 frames
+  const dg = new Uint8Array(0x200);
+  dg.set([0xA9, 0x00, 0x85, 0xFB, 0x60], 0);
+  dg.set([0xC6, 0xFB, 0x10, 0x16, 0xA9, 0x07, 0x85, 0xFB, 0xA0, 0x00, 0xB9, 0x00, 0x11, 0x8D, 0x18, 0xD4,
+    0xA2, 0x0A, 0xCA, 0xD0, 0xFD, 0xC8, 0xC0, 0x40, 0xD0, 0xF0, 0x60], 0x20);
+  for (let k = 0; k < 64; k++) dg[0x100 + k] = (k * 5) & 15;
+  const ds = R.readSid(psid({ init: 0x1000, play: 0x1020, data: dg }), { seconds: 4, exact: true });
+  const hits = ds.order.flatMap((k) => ds.patterns[k].cells[3]).map((c, r) => (c && c.note === 60 ? r : -1)).filter((r) => r >= 0);
+  check(ds.channels === 4 && ds.waves.length === 1 && ds.waves[0].format === 1 && ds.waves[0].frames > 200 && hits.length >= 20 &&
+    hits.every((r, k) => !k || r - hits[k - 1] === 8), 'SID: volume-register samples rendered, one sample shared by every hit, a hit every 8 frames');
+  for (const [sg, what] of [[pb, 'best effort'], [px, 'exact'], [ds, 'with samples']]) {
+    const out = R.writeSong(sg);
+    check(same(R.writeSong(R.readSong(out.buffer)), out), `SID (${what}): written and read back stably`);
+  }
+  // the converter gives the same song
+  const tmp = fs.mkdtempSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '.sid-'));
+  try {
+    fs.writeFileSync(path.join(tmp, 't.sid'), new Uint8Array(P));
+    const { execFileSync } = await import('child_process');
+    execFileSync(process.execPath, [path.join(WEB, 'converters', 'sid2rsng.js'), path.join(tmp, 't.sid'), '-o', path.join(tmp, 't.rsng')], { stdio: 'pipe' });
+    const cli = R.readSong(new Uint8Array(fs.readFileSync(path.join(tmp, 't.rsng'))).buffer);
+    check(json(moduleNotes(cli, 3000)) === json(moduleNotes(pb, 3000)) && cli.name === 'Test tune' && cli.auth === 'Tester', 'sid2rsng.js: the same song from the command line');
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 console.log(`${checks - failed}/${checks} checks passed`);
 process.exit(failed ? 1 : 0);

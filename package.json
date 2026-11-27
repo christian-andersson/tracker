@@ -10,6 +10,7 @@
     "test": "node test/rsng.test.mjs",
     "serve": "node scripts/serve.mjs",
     "midi2rsng": "node converters/midi2rsng.js",
-    "mod2rsng": "node converters/mod2rsng.js"
+    "mod2rsng": "node converters/mod2rsng.js",
+    "sid2rsng": "node converters/sid2rsng.js"
   }
 }

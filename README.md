@@ -1,8 +1,8 @@
 # RetCon tracker
 
 A pattern tracker for RetCon songs (`.rsng`) that runs in the browser: write,
-open, play and save songs, and open MIDI files and tracker modules (MOD, S3M,
-XM, IT), converted on opening. Files are read in the browser and never
+open, play and save songs, and open MIDI files, tracker modules (MOD, S3M,
+XM, IT) and C64 SID tunes, converted on opening. Files are read in the browser and never
 uploaded.
 
 **Live:** https://christian-andersson.github.io/tracker/
@@ -21,8 +21,8 @@ A Node project with no dependencies (Node 24.22.1 or later):
 | Path | What it is |
 | --- | --- |
 | `page/` | the page (`index.html`) and its audio thread (`player-worklet.js`) |
-| `src/` | the song library, ES modules: the chunk container and song commands (`format.js`), samples and wavetables (`waves.js`), tracker songs, compiling and reading back (`song.js`), the start state of a position (`chase.js`), ProTracker modules (`mod.js`), Scream Tracker 3, FastTracker 2 and Impulse Tracker modules (`tracked.js`), the General MIDI bank (`wopl.js`), MIDI files (`midi.js`); `index.js` gathers them as one object |
-| `converters/` | `midi2rsng.js` and `mod2rsng.js`: MIDI files and modules (MOD, S3M, XM, IT) to `.rsng` from the command line, on the same library |
+| `src/` | the song library, ES modules: the chunk container and song commands (`format.js`), samples and wavetables (`waves.js`), tracker songs, compiling and reading back (`song.js`), the start state of a position (`chase.js`), ProTracker modules (`mod.js`), Scream Tracker 3, FastTracker 2 and Impulse Tracker modules (`tracked.js`), the General MIDI bank (`wopl.js`), MIDI files (`midi.js`), the emulated 6510 and C64 (`c64.js`), SID tunes (`sid.js`); `index.js` gathers them as one object |
+| `converters/` | `midi2rsng.js`, `mod2rsng.js` and `sid2rsng.js`: MIDI files, modules (MOD, S3M, XM, IT) and SID tunes to `.rsng` from the command line, on the same library |
 | `engine/player.wasm` | the audio engine, prebuilt (see [Licences](#licences)) |
 | `banks/dmxopl3/` | the General MIDI instruments (DMXOPL3, MIT) |
 | `scripts/build.mjs` | builds `dist/index.html`: the page with the engine, the worklet, the library (its modules joined into one script) and the bank inlined |
@@ -36,6 +36,7 @@ npm run build                                # dist/index.html, which opens stra
 npm run serve                                # http://127.0.0.1:8000/
 npm run midi2rsng -- tune.mid -o tune.rsng   # a MIDI file to a song
 npm run mod2rsng -- tune.it -o tune.rsng     # a module (MOD, S3M, XM, IT) to a song; --exact plays it tick by tick
+npm run sid2rsng -- tune.sid -o tune.rsng    # a SID tune to a song; --song N for a subtune, --seconds S for a fixed length
 ```
 
 The library's modules keep to a form `scripts/build.mjs` joins without a bundler:
@@ -90,7 +91,7 @@ top-level declarations, and top-level names unique across `src/`.
   A packed song is always flagged as rearranged: its notes sit on other
   channels than in the module, so its patterns are not the original's.
 - **Not as in the original:** when an import rearranges the music (a
-  module packed onto 16 channels) or cannot keep all of it (module
+  module packed onto 16 channels, any SID tune) or cannot keep all of it (module
   notes where more than 16 sound at once, MIDI notes beyond 16 channels,
   drums the kit has no sound for), the tracker says so in a notice on opening, and the converters
   print a warning for each.
@@ -109,6 +110,24 @@ top-level declarations, and top-level names unique across `src/`.
   channels as it has notes at once; then the notes are laid on rows like
   any song without tracker data. `converters/midi2rsng.js`
   converts MIDI files with the same code.
+- **C64 SID tunes** (`.sid`, PSID and RSID) open too. A SID tune is a
+  program, so it is never read as music: it runs on an emulated C64
+  (`src/c64.js`: the 6510 with its undocumented opcodes, CIA timers, the
+  raster interrupt, NMI and a stand-in KERNAL of a few bytes), and only
+  what it writes to the SID chip counts, whoever wrote its player. The SID
+  itself is not emulated; its registers are read each tick (a frame, or a
+  CIA timer period), and `src/sid.js` turns them into a song: each voice a
+  channel, a note at the nearest pitch where a voice is struck, bends for
+  what the pitch does after, each sound (waveform, envelope, filter) an
+  instrument, and pulse width, waveform and filter changes during a note as
+  patches of it. Samples played through the volume register (digi drums)
+  are rendered to 8-bit PCM, equal ones shared, on a channel of their own.
+  The tune runs until it repeats itself (the song's loop) or falls silent,
+  for up to ten minutes; a short repeat that starts late is its end state
+  and ends the song. Its own patterns cannot be read, so they are worked
+  out from the sound, and the notice says so. Not carried over: ring
+  modulation and hard sync between voices, and combined waveforms (played
+  as one). `converters/sid2rsng.js` converts SID tunes with the same code.
 - **Columns:** note (or release), instrument, volume, one effect:
   `0xy` arpeggio, `1xx` / `2xx` pitch slide, `3xx` slide to the note,
   `4xy` vibrato, `Axy` volume slide, `Fxx` tempo. 0, 1, 2, 4 and A last for
@@ -160,7 +179,11 @@ compressed IT samples) open with their patterns, order, loop and samples,
 and best effort and exact import play the same notes at the same times;
 modules with more than 16 channels are packed onto 16. The DMXOPL3 bank
 converts to the 128 programs and the kit, and a MIDI file made in the test
-opens with them. Both command-line converters give the same songs, and the
+opens with them. The 6510 does decimal mode, undocumented opcodes and page
+crossings as the chip does; SID tunes made in the test (a PSID, the same
+music as an RSID on a raster interrupt, and one playing samples through the
+volume register) give the same notes, their loop and one shared sample. The
+command-line converters give the same songs, and the
 page's joined copy of the library has the same names and writes the same
 bytes as the modules.
 

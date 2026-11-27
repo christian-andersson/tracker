@@ -490,7 +490,10 @@ export function bestEffort(song, flat, exact) {
   for (const f of flat) for (const [t, cmds] of f.events) if (cmds.some((c) => c.op === CH.NOTE)) notes.push(t);
   const { tpr, phase, on } = exact ? { tpr: 1, phase: 0, on: 1 } : chooseGrid(notes, song.tpb);
   const rowOf = (t) => Math.max(0, Math.round((t - phase) / tpr));
-  const rows = rowOf(end - 1) + 1, loopRow = loopTick >= 0 ? rowOf(loopTick) : -1;
+  // the song's length in rows (a loop then turns on time), longer only if a command rounds past it
+  let lastTick = 0;
+  for (const f of flat) for (const [t] of f.events) if (t < end) lastTick = Math.max(lastTick, t);
+  const rows = Math.max(1, Math.ceil((end - phase) / tpr), rowOf(lastTick) + 1), loopRow = loopTick >= 0 ? rowOf(loopTick) : -1;
   const grid = Array.from({ length: n }, () => new Map());
   let moved = 0, merged = 0;
   flat.forEach((f, ch) => {
