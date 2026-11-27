@@ -227,7 +227,7 @@
 </dialog>
 
 <dialog id="lost">
-  <h3>Not everything fit</h3>
+  <h3>Not as in the original</h3>
   <p class="sub" id="l-what"></p>
   <ul id="l-list"></ul>
   <div class="row" style="justify-content:flex-end; margin-top:12px">
@@ -959,7 +959,7 @@ const HELP_TABS = {
       open the same way: each sample an instrument (an XM instrument's envelope fitted to its attack, decay, sustain and
       release in best effort, played exactly in exact import). A module with more than 16 channels is packed onto 16: its
       chords, doubled notes and echoes take turns on fewer channels, and where more than 16 notes sound at once, echoes and
-      inner chord voices go first; a notice says what was left out. Impulse Tracker (<code>.it</code>)
+      inner chord voices go first; a notice says the song is rearranged, and what was left out. Impulse Tracker (<code>.it</code>)
       modules too, compressed samples included; their new note actions, filters and pitch envelopes are not carried over.</p>
     <p>It takes MIDI files too (<code>.mid</code>, type 0 and 1). The instruments are always the same: 00-7F the 128
       General MIDI programs by name, then the drum kit, all from DMXOPL3, an OPL3 bank by Shannon Freeman (MIT licence),
@@ -1014,9 +1014,9 @@ async function openBuffer(buf, name, handle) {
     if (s.lost && s.lost.length) showLost(name, s.lost);
   } catch (e) { status(`Cannot open ${name}: ${e.message}`, true); }
 }
-// What an import left out of the music (channels or notes), said before anything is played.
+// What an import changed or left out of the music (channels rearranged, notes left out), said before anything is played.
 function showLost(name, lines) {
-  $('l-what').textContent = `${name} opened, but some of its music is not in the song:`;
+  $('l-what').textContent = `${name} opened, changed to fit the song player:`;
   $('l-list').replaceChildren(...lines.map((t) => Object.assign(document.createElement('li'), { textContent: t })));
   $('lost').showModal();
 }

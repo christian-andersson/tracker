@@ -626,8 +626,11 @@ function tmPack(m, limit = 16) {
   const out = Object.assign({}, m, { nch: width, pats: packed.map((p) => ({ rows: p.rows, cells: p.cells.map((row) => row.slice(0, width)) })),
     pans: new Array(width).fill(128), chanVols: null, packedFrom: m.nch });
   out.notes = [...m.notes, `its ${m.nch} channels packed into ${width}` + (lostNotes ? `, ${lostNotes} note${lostNotes === 1 ? '' : 's'} left out where more than ${limit} sounded at once` : '')];
-  out.lost = lostNotes ? [`${lostNotes} note${lostNotes === 1 ? '' : 's'} left out where more than ${limit} sounded at once (echoes, doubled notes and inner chord voices first; ` +
-    `${cut} notes cut short). By instrument: ${[...lostBy].sort((a, b) => b[1] - a[1]).map(([i, n]) => `${(i - 1).toString(16).toUpperCase().padStart(2, '0')} (${n})`).join(', ')}.`] : [];
+  // always said: a packed song is rearranged, not laid out as the original
+  out.lost = [`The song is rearranged to fit the song player's ${limit} channels: the module's ${m.nch} channels are packed into ${width}, ` +
+    `its notes moved onto other channels${cut ? ` (${cut} cut short to make room)` : ''}, so the patterns are not laid out as in the original.`];
+  if (lostNotes) out.lost.push(`${lostNotes} note${lostNotes === 1 ? '' : 's'} left out where more than ${limit} sounded at once (echoes, doubled notes and inner chord voices first). ` +
+    `By instrument: ${[...lostBy].sort((a, b) => b[1] - a[1]).map(([i, n]) => `${(i - 1).toString(16).toUpperCase().padStart(2, '0')} (${n})`).join(', ')}.`);
   return out;
 }
 

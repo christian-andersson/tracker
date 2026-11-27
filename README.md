@@ -87,7 +87,10 @@ top-level declarations, and top-level names unique across `src/`.
   sound at once, a note that has sounded a while gives way to a new one,
   and echoes, doubled notes and the inner voices of chords go before an
   instrument's leading note. Speed, tempo, breaks and jumps are kept.
-- **Left out:** when an import cannot keep all of the music (module
+  A packed song is always flagged as rearranged: its notes sit on other
+  channels than in the module, so its patterns are not the original's.
+- **Not as in the original:** when an import rearranges the music (a
+  module packed onto 16 channels) or cannot keep all of it (module
   notes where more than 16 sound at once, MIDI notes beyond 16 channels,
   drums the kit has no sound for), the tracker says so in a notice on opening, and the converters
   print a warning for each.

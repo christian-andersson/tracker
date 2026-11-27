@@ -195,13 +195,14 @@ let modBytes = null, modBest = null;
   const tb = wide((r) => (r < 20 ? [[r, per(r), 0, 0]] : []).concat(r && r <= 20 ? [[r - 1, 0, 0xE, 0xC0]] : []));
   const tp = R.readMod(tb), tpx = R.readMod(tb, { exact: true }), tn = [], tpan = [];
   tp.patterns[0].cells.forEach((col) => col.forEach((c, r) => { if (c && c.note !== null) { tn.push(c.note); if (r > 0 && c.raw.some((x) => x[0] === R.CH.POSITION)) tpan.push(r); } }));
-  check(tp.channels < 16 && json(tp.lost) === json([]) && json(tn.sort((x, y) => x - y)) === json(Array.from({ length: 20 }, (_, k) => 48 + k)) &&
+  check(tp.channels < 16 && tp.lost.length === 1 && new RegExp(`^The song is rearranged .*20 channels are packed into ${tp.channels},`).test(tp.lost[0]) &&
+    json(tn.sort((x, y) => x - y)) === json(Array.from({ length: 20 }, (_, k) => 48 + k)) &&
     tpan.length === 19 && /^A 20-channel module/.test(tp.notes[0]) && json(moduleNotes(tp, 4000)) === json(moduleNotes(tpx, 4000)),
     'module: 20 channels taking turns packed onto fewer, every note kept with its channel\'s pan, best effort and exact alike');
   // 20 notes at once: 16 kept, the rest told to the user
   const ab20 = wide((r) => (r === 0 ? Array.from({ length: 20 }, (_, c) => [c, per(c), 0, 0]) : []));
   const ap = R.readMod(ab20), apx = R.readMod(ab20, { exact: true });
-  check(ap.channels === 16 && ap.lost.length === 1 && /^4 notes left out where more than 16 sounded at once/.test(ap.lost[0]) &&
+  check(ap.channels === 16 && ap.lost.length === 2 && /^The song is rearranged/.test(ap.lost[0]) && /^4 notes left out where more than 16 sounded at once/.test(ap.lost[1]) &&
     json(apx.lost) === json(ap.lost), 'module: 20 notes at once on 20 channels: 16 kept, what is left out told to the user');
   for (const [sg, what] of [[tp, 'packed best effort'], [tpx, 'packed exact']]) {
     const out = R.writeSong(sg);
@@ -466,7 +467,7 @@ let modBytes = null, modBest = null;
   wp.push(0); for (let r = 1; r < 32; r++) wp.push(0);
   wd.setUint16(PAT, wp.length, true); wideIt.set(wp, PAT + 8);
   const wi = R.readTracked(wideIt.buffer), wix = R.readTracked(wideIt.buffer, { exact: true });
-  check(wi.channels === 16 && wi.lost.length === 1 && /^4 notes left out where more than 16 sounded at once/.test(wi.lost[0]) &&
+  check(wi.channels === 16 && wi.lost.length === 2 && /^The song is rearranged/.test(wi.lost[0]) && /^4 notes left out where more than 16 sounded at once/.test(wi.lost[1]) &&
     json(wix.lost) === json(wi.lost), 'IT: 20 notes at once on 20 channels: 16 kept, what is left out told to the user');
   // 20 channels taking turns (a note each, then off): packed onto fewer channels, nothing lost, each note with its pan
   const turn = (cellsAt) => {
@@ -479,13 +480,14 @@ let modBytes = null, modBest = null;
   const tp = R.readTracked(tb), tpx = R.readTracked(tb, { exact: true });
   const tn = [], tpan = [];
   tp.patterns[0].cells.forEach((col) => col.forEach((c, r) => { if (c && c.note !== null) { tn.push(c.note); const pr = c.raw.find((x) => x[0] === R.CH.POSITION && r > 0); if (pr) tpan.push(pr[1]); } }));
-  check(tp.channels < 16 && json(tp.lost) === json([]) && json(tn.sort((x, y) => x - y)) === json(Array.from({ length: 20 }, (_, k) => 60 + k)) &&
+  check(tp.channels < 16 && tp.lost.length === 1 && new RegExp(`^The song is rearranged .*20 channels are packed into ${tp.channels},`).test(tp.lost[0]) &&
+    json(tn.sort((x, y) => x - y)) === json(Array.from({ length: 20 }, (_, k) => 60 + k)) &&
     tpan.length >= 19 && json(moduleNotes(tp, 4000)) === json(moduleNotes(tpx, 4000)),
     'IT: 20 channels taking turns packed onto fewer, every note kept with its channel\'s pan, best effort and exact alike');
   // 16 held notes, then at row 2 an echo of one of them and a new note: the echo is the one left out
   const eb = turn((r) => (r === 0 ? Array.from({ length: 16 }, (_, c) => [c, 60 + c, 64]) : r === 2 ? [[16, 60, 32], [17, 90, 64]] : []));
   const ep = R.readTracked(eb), row2 = ep.patterns[0].cells.map((col) => col[2]).filter((c) => c && c.note !== null).map((c) => c.note);
-  check(ep.channels === 16 && json(row2) === json([90]) && /^1 note left out/.test(ep.lost[0] || ''),
+  check(ep.channels === 16 && json(row2) === json([90]) && /^1 note left out/.test(ep.lost[1] || ''),
     'IT: with all 16 channels sounding, a new note takes a channel and the echo is left out');
   for (const [sg, what] of [[it, 'IT best effort'], [itx, 'IT exact']]) {
     const out = R.writeSong(sg);
