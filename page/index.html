@@ -310,13 +310,17 @@ async function engine() {
   try { await audio(); await ctx.resume(); return true; }
   catch (e) { status('Audio could not start: ' + e.message, true); return false; }
 }
+// Each load has its own id, and the engine sends the id of the last one it
+// took with every status: a status still on its way from before (a stopped
+// engine, the song before) must not end or move the play just started.
+let loadId = 0;
 function load(bytes, start) {
   const b = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-  node.port.postMessage({ type: 'load', bytes: b, start, id: 0 }, [b]);
+  node.port.postMessage({ type: 'load', bytes: b, start, id: ++loadId }, [b]);
 }
 function onEngine(m) {
   if (m.type === 'loaded' && m.err) status('The engine refused the song (error ' + m.err + ')', true);
-  if (m.type !== 'status' || !playing) return;
+  if (m.type !== 'status' || !playing || m.id !== loadId) return;
   if (m.state !== PLAYING) { playing = null; playRow = playOrder = -1; renderGrid(); renderOrder(); return; }
   // where the song is: rows since the start, round the loop
   let r = Math.floor(m.tick / song.ticksPerRow);
