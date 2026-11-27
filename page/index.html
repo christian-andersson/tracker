@@ -1032,7 +1032,7 @@ async function openFile() {
   if (dirty && !confirm('Discard the unsaved changes?')) return;
   if (window.showOpenFilePicker) {
     try {
-      const [h] = await showOpenFilePicker({ types: [{ description: 'RetCon song, module (MOD, S3M, XM, IT) or MIDI file', accept: { 'application/octet-stream': ['.rsng', '.mod', '.s3m', '.xm', '.it', '.mid', '.midi'] } }] });
+      const [h] = await showOpenFilePicker({ types: [{ description: 'RetCon song, module (MOD, S3M, XM, IT), MIDI file or SID tune', accept: { 'application/octet-stream': ['.rsng', '.mod', '.s3m', '.xm', '.it', '.mid', '.midi', '.sid'] } }] });
       const f = await h.getFile();
       return openBuffer(await f.arrayBuffer(), f.name, h);
     } catch (e) { if (e.name === 'AbortError') return; }
