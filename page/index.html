@@ -133,7 +133,7 @@
   <h1>RetCon tracker</h1>
   <button id="new">New</button>
   <button id="open">Open…</button>
-  <input type="file" id="file" accept=".rsng,.mod,.s3m,.xm,.it,.mid,.midi" class="sr">
+  <input type="file" id="file" accept=".rsng,.mod,.s3m,.xm,.it,.mid,.midi,.sid" class="sr">
   <button id="save">Save</button>
   <button id="saveas">Save as…</button>
   <label class="inline" title="Lay songs without tracker data on one tick a row, so they sound exactly as before (long patterns); a module plays as ProTracker plays it"><input type="checkbox" id="exact"> exact import</label>
@@ -966,7 +966,13 @@ const HELP_TABS = {
       turned into this synth's instruments. A part plays its program (or the instrument its track name suggests: "bass",
       "pad", "lead"…), with its volume and expression; it gets as many channels as it has notes at once, and MIDI channel
       10 a channel per kind of drum. Up to 16 channels; what does not fit is listed.
-      A converted song is saved as a new <code>.rsng</code>.</p>`,
+      A converted song is saved as a new <code>.rsng</code>.</p>
+    <p>And C64 SID tunes (<code>.sid</code>, PSID and RSID). A SID tune is a program, so it is run on an emulated C64 and
+      what it writes to the SID chip becomes the song: each voice a channel, a note at the nearest pitch each time a voice
+      is struck, bends for what the pitch does after, each sound an instrument, with pulse width, waveform and filter
+      changes as patches; samples played through the volume register (digi drums) are rendered and play on a channel of
+      their own. The tune runs until it repeats itself, which becomes the loop, or falls silent, for up to ten minutes.
+      Its own patterns cannot be read, so they are worked out from the sound; exact import keeps every frame's change.</p>`,
 };
 let helpTab = 'Instruments';
 function renderHelp() {
@@ -1003,9 +1009,10 @@ function setSong(s, name, handle) {
 async function openBuffer(buf, name, handle) {
   try {
     const opts = { exact: $('exact').checked }, bytes = new Uint8Array(buf), rsng = /\.rsng$/i.test(name);
-    const kind = rsng ? null : R.isMidi(bytes) ? 'midi' : R.isXm(bytes) || R.isS3m(bytes) || R.isIt(bytes) ? 'tracked' : R.isMod(bytes) ? 'mod' : null, mod = !!kind;
+    const kind = rsng ? null : R.isMidi(bytes) ? 'midi' : R.isSid(bytes) ? 'sid' : R.isXm(bytes) || R.isS3m(bytes) || R.isIt(bytes) ? 'tracked'
+      : R.isMod(bytes) ? 'mod' : null, mod = !!kind;
     const s = kind === 'midi' ? R.readMidi(buf, Object.assign({ bank: bank() }, opts)) : kind === 'mod' ? R.readMod(buf, opts)
-      : kind === 'tracked' ? R.readTracked(buf, opts) : R.readSong(buf, opts);
+      : kind === 'sid' ? R.readSid(buf, opts) : kind === 'tracked' ? R.readTracked(buf, opts) : R.readSong(buf, opts);
     const stem = name.replace(/\.[^.]+$/, '');
     if (mod && !s.name) s.name = stem;
     setSong(s, mod ? stem + '.rsng' : name, mod ? null : handle);
