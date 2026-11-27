@@ -59,7 +59,7 @@ top-level declarations, and top-level names unique across `src/`.
   patterns of 64 rows, equal patterns shared. A command between rows moves
   to the nearest one. **Exact import** lays them on one tick a row instead,
   so they sound exactly as before, in long patterns.
-- **ProTracker modules** (`.mod`, 4 to 16 channels) open too, converted
+- **ProTracker modules** (`.mod`, 1 to 99 channels) open too, converted
   on opening. Best effort keeps the module's patterns, order and loop
   (`Bxx`), its effects on the effect column where there is one or as extra
   commands (`8xx`, `9xx`), and lists the ones it cannot carry over. Exact
@@ -76,7 +76,7 @@ top-level declarations, and top-level names unique across `src/`.
   operator's attack, decay, sustain and release, and lists what it cannot
   carry over; exact import plays the module tick by tick, envelopes,
   fade-out, linear or Amiga pitch, global volume and panning included.
-- **More than 16 channels** (common in XM and IT): the song player has
+- **More than 16 channels** (common in XM and IT, and in MOD's `xxCH`): the song player has
   16, but a module rarely plays on all of its channels at once. Chords,
   doubled notes and echoes (the same note a few rows later on the next
   channel, quieter) each take a channel that is idle most of the time.

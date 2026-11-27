@@ -54,7 +54,6 @@ export function readModFile(buf) {
     notes.push('header');
   }
   const nch = modChannels(tag());
-  if (nch > 16) throw new Error(`${nch} channels; the song player has 16 voices`);
   const text = (a, n) => String.fromCharCode(...d.subarray(a, a + n)).replace(/\0.*$/s, '').replace(/[^\x20-\x7e]/g, ' ').trim();
   const u16 = (o) => d[o] << 8 | d[o + 1];
   const samples = [];
@@ -99,7 +98,7 @@ export function readModFile(buf) {
     if (sm.loopStart + sm.loopLength > sm.length) sm.loopLength = Math.max(0, sm.length - sm.loopStart);
   }
   if (notes.length) notes.unshift('Bytes swapped in pairs in the ' + notes.splice(0).join(', ') + ', read swapped back.');
-  return { name: text(0, 20), nch, samples, order, pats, notes };
+  return { name: text(0, 20), nch, samples, order, pats, notes, pans: Array.from({ length: nch }, (_, c) => MOD_PAN[c % 4]) };
 }
 
 // One instrument and one sample wave per module sample. With `finetune`, a
@@ -127,6 +126,7 @@ export function modSong(m) {
 // Best effort: the module's own patterns and order.
 export function modPatterns(m) {
   const song = modSong(m), ignored = new Map(), note = (k) => ignored.set(k, (ignored.get(k) || 0) + 1);
+  song.lost = m.lost || [];
   modInstruments(m, song, true);
   // speed and tempo as the song starts, and the rows each pattern really has (Dxx)
   let speed = 6, tempo = 125;
@@ -196,20 +196,21 @@ export function modPatterns(m) {
           break;
         default: break;
       }
+      if (p[r][ch].pan !== undefined) c.raw.push(Uint8Array.of(CH.POSITION, p[r][ch].pan & 0xFF, 0));   // a packed note's own pan
       if (per) l.per = per;
       if (!cellEmpty(c)) pat.cells[ch][r] = c;
     }
     return pat;
   });
-  // the Amiga's channels: left, right, right, left, set on the first row
+  // the Amiga's channels: left, right, right, left (packed: each note its own), set on the first row
   const first = song.patterns[song.order[0]];
   for (let ch = 0; ch < m.nch; ch++) {
     const c = first.cells[ch][0] || emptyCell();
-    c.raw.unshift(Uint8Array.of(CH.POSITION, MOD_PAN[ch % 4] & 0xFF, 0));
+    c.raw.unshift(Uint8Array.of(CH.POSITION, m.pans[ch] & 0xFF, 0));
     first.cells[ch][0] = c;
   }
   song.patterns.forEach((p, pi) => { p.name = used.has(pi) ? `pattern ${pi}` : `pattern ${pi} (unused)`; });
-  song.notes = [`A ${m.nch}-channel module: its patterns and order, the effects approximated.`, ...m.notes];
+  song.notes = [`A ${m.packedFrom || m.nch}-channel module: its patterns and order, the effects approximated.`, ...m.notes];
   if (ignored.size) song.notes.push('Not carried over: ' + [...ignored].map(([k, n]) => `${k} ×${n}`).join(', ') + '.');
   return song;
 }
@@ -219,7 +220,7 @@ export function modExact(m) {
   const song = modSong(m), ignored = new Map(), note = (k) => ignored.set(k, (ignored.get(k) || 0) + 1);
   modInstruments(m, song, false);
   const chans = Array.from({ length: m.nch }, (_, c) => ({ sample: 0, volume: 64, period: 0, finetune: 0, note: MOD_ROOT_NOTE,
-    target: 0, portaSpeed: 0, vib: [0, 0, 0], trem: [0, 0, 0], offset: 0, loopRow: 0, loopLeft: 0, pan: MOD_PAN[c % 4] }));
+    target: 0, portaSpeed: 0, vib: [0, 0, 0], trem: [0, 0, 0], offset: 0, loopRow: 0, loopLeft: 0, pan: m.pans[c] }));
   const flat = Array.from({ length: m.nch }, () => ({ events: new Map(), loopTick: -1, endTick: 0 }));
   const last = Array.from({ length: m.nch }, () => ({ sample: null, volume: null, bend: 0, pan: null }));
   let speed = 6, tempo = 125, pos = 0, row = 0, tick = 0, tempoChange = null;
@@ -281,7 +282,8 @@ export function modExact(m) {
   for (const f of flat) { f.endTick = tick; f.loopTick = loopTick; }
   song.tpb = 24; song.bpm = 125;
   const out = bestEffort(song, flat, true);
-  out.notes.unshift(`A ${m.nch}-channel module, played as ProTracker plays it.`, ...m.notes);
+  out.lost = m.lost || [];
+  out.notes.unshift(`A ${m.packedFrom || m.nch}-channel module, played as ProTracker plays it.`, ...m.notes);
   if (ignored.size) out.notes.push('Not carried over: ' + [...ignored].map(([k, n]) => `${k} ×${n}`).join(', ') + '.');
   return out;
 }
@@ -293,6 +295,7 @@ export function modTick(ch, samples, cl, tick, rep) {
   const first = tick === 0 && rep === 0, delay = fx === 0xE && x === 0xD ? y : 0, porta = fx === 3 || fx === 5;
   if (first && fx === 9 && prm) ch.offset = prm;
   if (tick === delay && rep === 0 && (smp || per)) {
+    if (cl.pan !== undefined) ch.pan = cl.pan;       // a packed note's own pan
     if (smp && smp <= 31) { ch.sample = smp; ch.volume = samples[smp - 1].volume; ch.finetune = samples[smp - 1].finetune; }
     if (per) {
       const fine = per * 2 ** (-ch.finetune / 96);
@@ -344,9 +347,4 @@ export function modTick(ch, samples, cl, tick, rep) {
   let bend = 0;
   if (period) bend = Math.round(modCents(period) - (ch.note - MOD_ROOT_NOTE) * 100) + 100 * arp;
   return [trigger, ch.sample, ch.note, Math.max(-32768, Math.min(32767, bend)), volume, start, ch.pan];
-}
-
-export function readMod(buf, options = {}) {
-  const m = readModFile(buf);
-  return options.exact ? modExact(m) : modPatterns(m);
 }

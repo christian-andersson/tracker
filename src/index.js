@@ -19,8 +19,8 @@ import { CH, COMMAND_NAMES, FILTERS, FX_LETTERS, INSTRUMENT_SIZE, INST_FIELDS, N
 import { NO_WAVE, OP_TABLE_SMOOTH, SAMPLE_FORMATS, TABLE_SHAPES, WAVE_SAMPLE, WAVE_TABLE, getU32, newSample, newTable, quantizeTable, sampleFrame, setTableLength, setU32, shapeTable, waveUsers } from './waves.js';
 import { EXTRA, PATCH_FIELDS, SWEEP_MODES, cellEmpty, compileSong, decodeExtra, defaultExtra, emptyCell, encodeExtra, flattenChannel, newPattern, newSong, playOrder, readSong, setChannels, setRows, tickMs, writeSong } from './song.js';
 import { chase, entryBytes, writePlay } from './chase.js';
-import { isMod, readMod } from './mod.js';
-import { isIt, isS3m, isXm, readTracked } from './tracked.js';
+import { isMod } from './mod.js';
+import { isIt, isS3m, isXm, readMod, readTracked } from './tracked.js';
 import { BANK_NOTICE, gmBank } from './wopl.js';
 import { isMidi, keepUsedInstruments, midiChannels, readMidi } from './midi.js';
 

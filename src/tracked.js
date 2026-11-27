@@ -7,7 +7,7 @@
 import { CH, INSTRUMENT_SIZE } from './format.js';
 import { WAVE_SAMPLE, setU32 } from './waves.js';
 import { bestEffort, cellEmpty, emptyCell, newPattern } from './song.js';
-import { MOD_SINE, OP_SAMPLE_NEAREST, modVolume } from './mod.js';
+import { MOD_PAN, MOD_ROOT_PERIOD, MOD_SINE, OP_SAMPLE_NEAREST, PAL_CLOCK, modExact, modNote, modPatterns, modVolume, readModFile } from './mod.js';
 
 // ---------------------------------------------------------------- the common form
 //
@@ -548,7 +548,7 @@ function tmPack(m, limit = 16) {
           vol = c.vol !== null ? c.vol : c.inst && s ? s.volume : vol;
           let end = p.rows;
           if (s && s.frames && !s.loopLength) {
-            const secs = s.frames / (tmRate(m, s) * 2 ** ((c.note - 60) / 12));
+            const secs = s.frames / ((s.rate || tmRate(m, s)) * 2 ** ((c.note - 60) / 12));
             end = Math.min(end, r + Math.max(1, Math.ceil(secs / rowSec)));
           }
           cur = { ch, start: r, end, note: c.note, inst, vol, hasNote: true };
@@ -629,6 +629,43 @@ function tmPack(m, limit = 16) {
   out.lost = lostNotes ? [`${lostNotes} note${lostNotes === 1 ? '' : 's'} left out where more than ${limit} sounded at once (echoes, doubled notes and inner chord voices first; ` +
     `${cut} notes cut short). By instrument: ${[...lostBy].sort((a, b) => b[1] - a[1]).map(([i, n]) => `${(i - 1).toString(16).toUpperCase().padStart(2, '0')} (${n})`).join(', ')}.`] : [];
   return out;
+}
+
+// A ProTracker module (mod.js) with more than 16 channels, packed the same
+// way: its cells in the common form for tmPack, and back. A packed note
+// carries its channel's pan (-128 to 127, as mod.js keeps it).
+function modPack(m) {
+  const blank = { smp: 0, per: 0, fx: 0, prm: 0 };
+  const fxOf = (c) => (c.fx === 0xF ? (!c.prm ? TM_NONE : c.prm < 32 ? TM.SPEED : TM.TEMPO) : c.fx === 0xD ? TM.BREAK : c.fx || c.prm ? c.fx : TM_NONE);
+  const fxBack = (fx) => (fx === TM.SPEED || fx === TM.TEMPO ? 0xF : fx === TM.BREAK ? 0xD : fx);
+  const common = { kind: 'mod', nch: m.nch, order: m.order, speed: 6, tempo: 125, pans: m.pans.map((p) => p + 128), chanVols: null, notes: [],
+    samples: m.samples.map((sm) => ({ frames: sm.length, loopLength: sm.loopLength, volume: sm.volume,
+      rate: PAL_CLOCK / MOD_ROOT_PERIOD * 2 ** (sm.finetune / 96) })),
+    instruments: m.samples.map((_, i) => ({ map: new Array(96).fill(i) })),
+    pats: m.pats.map((rows) => ({ rows: rows.length, cells: rows.map((row) => row.map((c) => {
+      if (!c.smp && !c.per && !c.fx && !c.prm) return null;
+      return { note: c.per ? modNote(c.per) : c.fx === 0xE && c.prm === 0xC0 ? 'off' : null, inst: c.smp <= 31 ? c.smp : 0,
+        vol: c.fx === 0xC ? Math.min(64, c.prm) : null, volfx: 0, fx: fxOf(c), prm: c.prm, mod: c };
+    })) })) };
+  const out = tmPack(common);
+  const back = (c) => {
+    if (!c) return Object.assign({}, blank);
+    const b = Object.assign({}, c.mod || blank);
+    if (!c.mod || c.fx !== fxOf(c.mod)) { b.fx = c.fx === TM_NONE ? 0 : fxBack(c.fx); b.prm = c.fx === TM_NONE ? 0 : c.prm; }   // a global effect moved here
+    if (c.inst) b.smp = c.inst;
+    if (c.pan !== undefined) b.pan = c.pan - 128;
+    return b;
+  };
+  const said = out.notes[out.notes.length - 1];
+  return Object.assign({}, m, { nch: out.nch, pats: out.pats.map((p) => p.cells.map((row) => row.map(back))), pans: new Array(out.nch).fill(0),
+    notes: [...m.notes, said[0].toUpperCase() + said.slice(1) + '.'], lost: out.lost, packedFrom: m.nch });
+}
+
+// A ProTracker module as a song: best effort, or with options.exact played as ProTracker plays it.
+export function readMod(buf, options = {}) {
+  const read = readModFile(buf);
+  const m = read.nch > 16 && options.pack !== false ? modPack(read) : read;
+  return options.exact ? modExact(m) : modPatterns(m);
 }
 
 function tmSong(m, nch) {

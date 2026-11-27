@@ -3,7 +3,7 @@
 // Convert a tracker module into a RetCon song (.rsng, the RetCon song format),
 // with the same code the web tracker opens modules with: a ProTracker-style
 // .mod (M.K., M!K!, FLT4, xCHN, xxCH; src/mod.js), a Scream Tracker 3 .s3m, a
-// FastTracker 2 .xm or an Impulse Tracker .it (src/tracked.js); at most 16 channels are kept:
+// FastTracker 2 .xm or an Impulse Tracker .it (src/tracked.js); a module with more than 16 channels is packed onto 16:
 //
 //     node converters/mod2rsng.js tune.mod [-o tune.rsng] [--exact]
 //          [--name TEXT] [--auth TEXT] [--licn TEXT] [--desc TEXT]
