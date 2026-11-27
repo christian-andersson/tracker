@@ -11,6 +11,7 @@ class RsngPlayer extends AudioWorkletProcessor {
     this.pos = 0;            // frames of it already played
     this.frames = 0;
     this.sinceStatus = 0;
+    this.id = 0;             // the last load's id, sent with every status
     this.port.onmessage = (ev) => this.message(ev.data);
   }
 
@@ -34,6 +35,7 @@ class RsngPlayer extends AudioWorkletProcessor {
         err = m.start === false ? this.e.rp_prepare(bytes.length) : this.e.rp_load(bytes.length);
       }
       this.pos = this.frames;
+      this.id = m.id;
       this.port.postMessage({ type: 'loaded', err, id: m.id });
     } else if (m.type === 'command') {
       this.e.rp_command(m.command);
@@ -64,7 +66,7 @@ class RsngPlayer extends AudioWorkletProcessor {
     this.sinceStatus += left.length;
     if (this.sinceStatus >= 2400) {                 // 20 times a second
       this.sinceStatus = 0;
-      this.port.postMessage({ type: 'status', state: this.e.rp_state(), tick: this.e.rp_tick() });
+      this.port.postMessage({ type: 'status', state: this.e.rp_state(), tick: this.e.rp_tick(), id: this.id });
     }
     return true;
   }
